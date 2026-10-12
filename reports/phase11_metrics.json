@@ -1,0 +1,37 @@
+{
+  "timestamp": "2026-09-20T07:37:01.927672+00:00",
+  "baseline_model": {
+    "checkpoint": "models/best_csiformer.pth",
+    "standard_test_top1": 0.5414426523297491,
+    "standard_test_top3": 0.9191308243727598,
+    "standard_test_macro_f1": 0.7544785788817124,
+    "unseen_user6_top1": 0.2853333333333333,
+    "unseen_user6_top3": 0.6731111111111111,
+    "unseen_user6_macro_f1": 0.28393663205193403,
+    "har_activity_acc": 0.9962121212121212,
+    "fall_detection_recall": 1.0,
+    "mean_latency_ms": 4.300780199962901,
+    "p99_latency_ms": 6.464694999285711,
+    "throughput_fps": 232.51595141007815,
+    "model_size_mb": 8.239346504211426,
+    "trainable_parameters": 708686
+  },
+  "dann_model": {
+    "checkpoint": "models/csiformer_dann.pth",
+    "standard_test_top1": 0.5380824372759857,
+    "standard_test_top3": 0.9126344086021505,
+    "standard_test_macro_f1": 0.7490081394908414,
+    "unseen_user6_top1": 0.27955555555555556,
+    "unseen_user6_top3": 0.648,
+    "unseen_user6_macro_f1": 0.27698850892851373,
+    "har_activity_acc": 0.9886363636363636,
+    "fall_detection_recall": 0.9772727272727273,
+    "mean_latency_ms": 4.566787300031137,
+    "p99_latency_ms": 6.590423999514314,
+    "throughput_fps": 218.9723178027542,
+    "model_size_mb": 2.8270702362060547,
+    "trainable_parameters": 717395
+  },
+  "chosen_production_model": "CSIFormer Baseline (models/best_csiformer.pth)",
+  "justification": "CSIFormer Baseline is selected as the official production checkpoint. While DANN provided slight domain gradient balancing during intermediate training epochs, it failed to bridge the micro-Doppler physical gap on zero-shot hand gestures (27.96% vs 28.53%) and introduced slight degradation to fall detection recall (97.73% vs 100.00%) and standard test accuracy (53.81% vs 54.14%). The baseline CSIFormer delivers superior life-safety guarantees (100% fall detection, 99.62% HAR), higher Top-3 candidate retention (91.91%), and smaller parameter overhead without auxiliary domain heads."
+}

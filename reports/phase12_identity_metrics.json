@@ -1,0 +1,89 @@
+{
+  "timestamp": "2026-09-20T08:27:24.661690+00:00",
+  "results": [
+    {
+      "component": "Raw Amplitude",
+      "subject_acc": 0.7366666666666667,
+      "gesture_acc": 0.22,
+      "mi_subject": 0.04485279470763197,
+      "mi_gesture": 0.007218042118932257,
+      "purity_subject": 0.43583333333333335,
+      "purity_gesture": 0.2375,
+      "silhouette_subject": 0.11314098536968231,
+      "silhouette_gesture": 0.10432907193899155,
+      "kinematic_to_biometric_ratio": 0.298642128540097
+    },
+    {
+      "component": "Raw Phase",
+      "subject_acc": 0.3466666666666667,
+      "gesture_acc": 0.17333333333333334,
+      "mi_subject": 0.009107471557892592,
+      "mi_gesture": 0.007432972179107352,
+      "purity_subject": 0.33416666666666667,
+      "purity_gesture": 0.23666666666666666,
+      "silhouette_subject": 0.05763271450996399,
+      "silhouette_gesture": 0.055426400154829025,
+      "kinematic_to_biometric_ratio": 0.4999985576964682
+    },
+    {
+      "component": "Sanitized Phase",
+      "subject_acc": 0.25,
+      "gesture_acc": 0.18666666666666668,
+      "mi_subject": 0.011812554796132581,
+      "mi_gesture": 0.008293430681441203,
+      "purity_subject": 0.33416666666666667,
+      "purity_gesture": 0.24333333333333335,
+      "silhouette_subject": 0.03500743210315704,
+      "silhouette_gesture": 0.03148652985692024,
+      "kinematic_to_biometric_ratio": 0.7466636800119467
+    },
+    {
+      "component": "Cross-Antenna Differential Phase",
+      "subject_acc": 0.49,
+      "gesture_acc": 0.22,
+      "mi_subject": 0.49254225916422345,
+      "mi_gesture": 0.0450415615349868,
+      "purity_subject": 0.42583333333333334,
+      "purity_gesture": 0.2475,
+      "silhouette_subject": 0.6328237032993117,
+      "silhouette_gesture": 0.6517744952821333,
+      "kinematic_to_biometric_ratio": 0.4489786755537234
+    },
+    {
+      "component": "Subcarrier Correlation Matrix",
+      "subject_acc": 0.9066666666666666,
+      "gesture_acc": 0.21666666666666667,
+      "mi_subject": 0.24601194808093474,
+      "mi_gesture": 0.01703050991686647,
+      "purity_subject": 0.40166666666666667,
+      "purity_gesture": 0.235,
+      "silhouette_subject": 0.4418445950272576,
+      "silhouette_gesture": 0.46062211763566113,
+      "kinematic_to_biometric_ratio": 0.2389703246650831
+    },
+    {
+      "component": "Doppler Spectrogram (DFS)",
+      "subject_acc": 0.3933333333333333,
+      "gesture_acc": 0.2866666666666667,
+      "mi_subject": 0.010388126882862263,
+      "mi_gesture": 0.0076814880410129805,
+      "purity_subject": 0.33666666666666667,
+      "purity_gesture": 0.25666666666666665,
+      "silhouette_subject": 0.017151495441794395,
+      "silhouette_gesture": 0.010221888311207294,
+      "kinematic_to_biometric_ratio": 0.7288117064109161
+    },
+    {
+      "component": "Velocity Profile (Centroid)",
+      "subject_acc": 0.2833333333333333,
+      "gesture_acc": 0.19666666666666666,
+      "mi_subject": 0.01721213060954921,
+      "mi_gesture": 0.017110957456384482,
+      "purity_subject": 0.335,
+      "purity_gesture": 0.23166666666666666,
+      "silhouette_subject": 0.6024059057235718,
+      "silhouette_gesture": 0.5604611039161682,
+      "kinematic_to_biometric_ratio": 0.6941151972404803
+    }
+  ]
+}

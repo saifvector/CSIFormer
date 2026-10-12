@@ -1,0 +1,18 @@
+{
+  "timestamp": "2026-09-20T08:28:39.853088+00:00",
+  "metrics": {
+    "raw_amplitude": {
+      "cross_subject_correlation": 0.8052106787062022,
+      "mmd_discrepancy": 0.2001000940799713
+    },
+    "phase_sanitized": {
+      "cross_subject_correlation": 0.07167438579776994,
+      "mmd_discrepancy": 0.19999977946281433
+    },
+    "doppler_dfs": {
+      "cross_subject_correlation": 0.8354649881686987,
+      "mmd_discrepancy": 0.19999417662620544
+    },
+    "domain_shift_reduction_pct": 0.0529322332203978
+  }
+}

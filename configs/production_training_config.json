@@ -1,0 +1,89 @@
+{
+  "config_name": "CSIFormer Production Training Configuration (Full 22,200 Dataset)",
+  "version": "1.0.0",
+  "generated_at": "2026-09-20T10:20:00Z",
+  "hardware": {
+    "target_device": "cuda",
+    "target_gpu": "NVIDIA GeForce RTX 3050 Laptop GPU (4GB VRAM)",
+    "use_amp": true,
+    "cudnn_benchmark": true
+  },
+  "dataset": {
+    "dataset_name": "combined",
+    "target_mode": "HT20",
+    "target_timesteps": 50,
+    "num_subcarriers": 56,
+    "num_classes": 12,
+    "include_widar": true,
+    "include_ntufi": true,
+    "widar_max_samples": null,
+    "ntufi_max_samples": null,
+    "val_split_ratio": 0.15,
+    "batch_size": 64,
+    "num_workers": 0,
+    "pin_memory": true,
+    "total_samples": 22200,
+    "partitions": {
+      "training_samples": 15076,
+      "validation_samples": 2660,
+      "testing_samples": 4464
+    }
+  },
+  "model": {
+    "architecture": "CSIFormerNet",
+    "embed_dim": 128,
+    "nhead": 8,
+    "num_layers": 3,
+    "dim_feedforward": 512,
+    "dropout": 0.1,
+    "multi_task": {
+      "activity_head": true,
+      "presence_head": true,
+      "motion_head": true,
+      "loss_weights": {
+        "activity": 1.0,
+        "presence": 0.2,
+        "motion": 0.2
+      }
+    }
+  },
+  "optimization": {
+    "optimizer": "AdamW",
+    "learning_rate": 1e-4,
+    "weight_decay": 1e-2,
+    "lr_scheduler": "CosineAnnealingLR",
+    "t_max_epochs": 50,
+    "eta_min": 1e-6,
+    "max_grad_norm": 1.0,
+    "epochs": 50,
+    "early_stopping_patience": 15,
+    "early_stopping_min_delta": 1e-4
+  },
+  "class_balancing": {
+    "use_class_weights": true,
+    "weighting_strategy": "normalized_inverse_frequency",
+    "class_weights": [
+      0.0814,
+      0.0811,
+      0.0802,
+      0.1228,
+      0.1618,
+      0.1619,
+      1.8512,
+      1.9379,
+      1.9379,
+      1.8106,
+      1.9081,
+      1.8651
+    ]
+  },
+  "paths": {
+    "models_dir": "models",
+    "reports_dir": "reports",
+    "log_dir": "logs/csiformer_production",
+    "best_model_path": "models/best_csiformer.pth",
+    "latest_checkpoint_path": "models/latest_checkpoint.pth",
+    "training_report_path": "reports/training_report.md",
+    "dataset_summary_path": "reports/dataset_summary.md"
+  }
+}

@@ -1,0 +1,16 @@
+dimension,metric,baseline,dann,target
+Accuracy,Standard Test Top-1 (%),54.14426523297491,53.80824372759857,>= 50%
+Accuracy,Standard Test Top-3 (%),91.91308243727599,91.26344086021506,>= 90%
+Accuracy,Standard Macro F1,0.7544785788817124,0.7490081394908414,>= 0.70
+Generalization,Unseen Subject Top-1 (%),28.53333333333333,27.955555555555556,>= 45%
+Generalization,Unseen Subject Top-3 (%),67.31111111111112,64.8,>= 80%
+Generalization,Unseen Subject Macro F1,0.28393663205193403,0.27698850892851373,>= 0.45
+Life-Safety,HAR Activity Accuracy (%),99.62121212121212,98.86363636363636,>= 98%
+Life-Safety,Fall Detection Recall (%),100.0,97.72727272727273,>= 98%
+Deployment,Streaming Latency (Mean ms),4.300780199962901,4.566787300031137,< 25 ms
+Deployment,99th Percentile Latency (ms),6.464694999285711,6.590423999514314,< 50 ms
+Deployment,Throughput (FPS),232.51595141007815,218.9723178027542,> 30 FPS
+Deployment,Model Size on Disk (MB),8.239346504211426,2.8270702362060547,< 10 MB
+Deployment,Trainable Parameters,708686.0,717395.0,< 1M
+Robustness,15 dB Noise Top-1 (%),48.43189964157706,47.60304659498208,>= 45%
+Robustness,20% Packet Drop Top-1 (%),37.27598566308244,35.28225806451613,>= 35%

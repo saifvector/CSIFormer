@@ -1,0 +1,260 @@
+{
+  "accuracy": 0.5414,
+  "top3_accuracy": 0.9191,
+  "precision_macro": 0.753,
+  "precision_weighted": 0.5477,
+  "recall_macro": 0.7632,
+  "recall_weighted": 0.5414,
+  "f1_macro": 0.7545,
+  "f1_weighted": 0.5379,
+  "roc_auc_macro": 0.9381,
+  "confusion_matrix": [
+    [
+      329,
+      246,
+      127,
+      76,
+      40,
+      82,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      152,
+      413,
+      157,
+      87,
+      39,
+      52,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      58,
+      88,
+      539,
+      100,
+      71,
+      44,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      30,
+      58,
+      92,
+      328,
+      76,
+      16,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      3,
+      15,
+      24,
+      40,
+      281,
+      87,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      9,
+      18,
+      19,
+      18,
+      122,
+      264,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      44,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      43,
+      1,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      44,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      44,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      44,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      44
+    ]
+  ],
+  "per_class_metrics": {
+    "Push&Pull": {
+      "support": 900,
+      "precision": 0.5663,
+      "recall": 0.3656,
+      "f1_score": 0.4443
+    },
+    "Sweep": {
+      "support": 900,
+      "precision": 0.4928,
+      "recall": 0.4589,
+      "f1_score": 0.4753
+    },
+    "Clap": {
+      "support": 900,
+      "precision": 0.5626,
+      "recall": 0.5989,
+      "f1_score": 0.5802
+    },
+    "Slide": {
+      "support": 600,
+      "precision": 0.5054,
+      "recall": 0.5467,
+      "f1_score": 0.5252
+    },
+    "Draw-O": {
+      "support": 450,
+      "precision": 0.4467,
+      "recall": 0.6244,
+      "f1_score": 0.5209
+    },
+    "Draw-Zigzag": {
+      "support": 450,
+      "precision": 0.4844,
+      "recall": 0.5867,
+      "f1_score": 0.5307
+    },
+    "box": {
+      "support": 44,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1_score": 1.0
+    },
+    "circle": {
+      "support": 44,
+      "precision": 1.0,
+      "recall": 0.9773,
+      "f1_score": 0.9885
+    },
+    "clean": {
+      "support": 44,
+      "precision": 0.9778,
+      "recall": 1.0,
+      "f1_score": 0.9888
+    },
+    "fall": {
+      "support": 44,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1_score": 1.0
+    },
+    "run": {
+      "support": 44,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1_score": 1.0
+    },
+    "walk": {
+      "support": 44,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1_score": 1.0
+    }
+  },
+  "presence_mean_score": 0.9999248385429382,
+  "motion_mean_score": 0.999947190284729,
+  "total_test_samples": 4464,
+  "evaluation_timestamp": "2026-09-20T06:37:36.883219+00:00",
+  "target_hardware": "ESP32-S3 (HT20)"
+}

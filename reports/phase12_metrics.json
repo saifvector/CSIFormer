@@ -1,0 +1,55 @@
+{
+  "timestamp": "2026-09-20T08:34:44.104879+00:00",
+  "selected_production_model": "Raw Baseline (models/csiformer_phase12_best.pth)",
+  "candidates": [
+    {
+      "model_name": "Raw Baseline",
+      "seen_top1": 0.38392857142857145,
+      "seen_top3": 0.7285714285714285,
+      "seen_f1": 0.3029588167831578,
+      "loso_top1": 0.30283018867924527,
+      "loso_top3": 0.65,
+      "loso_f1": 0.2974676425783514,
+      "fall_recall": 1.0,
+      "har_accuracy": 0.9954545454545455,
+      "mean_latency_ms": 3.040822200004186,
+      "p99_latency_ms": 4.578143000107955,
+      "throughput_fps": 328.8584251978374
+    },
+    {
+      "model_name": "Phase-Sanitized",
+      "seen_top1": 0.3392857142857143,
+      "seen_top3": 0.725,
+      "seen_f1": 0.3637913046394141,
+      "loso_top1": 0.2339622641509434,
+      "loso_top3": 0.5349056603773585,
+      "loso_f1": 0.3465129829495434,
+      "fall_recall": 0.022727272727272728,
+      "har_accuracy": 0.42727272727272725,
+      "mean_latency_ms": 3.095234000138589,
+      "p99_latency_ms": 5.99414399919624,
+      "throughput_fps": 323.07735051864415
+    },
+    {
+      "model_name": "Doppler (DFS)",
+      "seen_top1": 0.43214285714285716,
+      "seen_top3": 0.7589285714285714,
+      "seen_f1": 0.4733777287713216,
+      "loso_top1": 0.2981132075471698,
+      "loso_top3": 0.6377358490566037,
+      "loso_f1": 0.4141442617238449,
+      "fall_recall": 0.0,
+      "har_accuracy": 0.4,
+      "mean_latency_ms": 2.9134196000231896,
+      "p99_latency_ms": 4.966536003339564,
+      "throughput_fps": 343.23926426253206
+    }
+  ],
+  "criteria_validation": {
+    "loso_top1_met": false,
+    "loso_top3_met": false,
+    "fall_recall_met": true,
+    "har_accuracy_met": true,
+    "latency_met": true
+  }
+}

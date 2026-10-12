@@ -1,0 +1,46 @@
+{
+  "timestamp": "2026-09-20T10:41:47.279622+00:00",
+  "results": [
+    {
+      "objective": "Baseline (No Pretraining)",
+      "top1": 0.2916666666666667,
+      "top3": 0.6616666666666666,
+      "intra_cross_sim": 0.6684302091598511,
+      "inter_sim": 0.6392475366592407,
+      "discrimination_ratio": 1.045651583104419,
+      "alignment": 0.6631396412849426,
+      "uniformity": -1.2718632221221924
+    },
+    {
+      "objective": "Supervised Contrastive (SupCon)",
+      "top1": 0.3,
+      "top3": 0.6883333333333334,
+      "intra_cross_sim": 0.8879187107086182,
+      "inter_sim": 0.804448127746582,
+      "discrimination_ratio": 1.1037612855887187,
+      "alignment": 0.22416262328624725,
+      "uniformity": -0.6669178009033203
+    },
+    {
+      "objective": "Triplet Margin Loss",
+      "top1": 0.3416666666666667,
+      "top3": 0.7383333333333333,
+      "intra_cross_sim": 0.9691682457923889,
+      "inter_sim": 0.9625449776649475,
+      "discrimination_ratio": 1.0068809855251637,
+      "alignment": 0.06166338548064232,
+      "uniformity": -0.144822359085083
+    },
+    {
+      "objective": "NT-Xent Contrastive Loss",
+      "top1": 0.3283333333333333,
+      "top3": 0.7216666666666667,
+      "intra_cross_sim": 0.8856315612792969,
+      "inter_sim": 0.8182023763656616,
+      "discrimination_ratio": 1.0824113642752204,
+      "alignment": 0.22873687744140625,
+      "uniformity": -0.6355003118515015
+    }
+  ],
+  "best_objective": "Triplet Margin Loss"
+}
