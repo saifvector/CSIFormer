@@ -1,0 +1,77 @@
+{
+  "dataset_name": "CSIFormer_Phase15_Real_ESP32S3_CSI_Dataset",
+  "total_participants": 2,
+  "participants_list": [
+    "Participant_01",
+    "Participant_02"
+  ],
+  "total_sessions": 23,
+  "unindexed_files": [
+    "phase14_p15_real_walk_t1_1792303844_1792303844.json"
+  ],
+  "total_physical_packets": 3212,
+  "total_duration_seconds": 89.0,
+  "mean_duration_per_session_s": 3.87,
+  "total_windows": 49,
+  "activity_breakdown": {
+    "walk": {
+      "sessions": 4,
+      "packets": 590,
+      "windows": 9
+    },
+    "fall": {
+      "sessions": 4,
+      "packets": 561,
+      "windows": 8
+    },
+    "sit": {
+      "sessions": 4,
+      "packets": 595,
+      "windows": 10
+    },
+    "clap": {
+      "sessions": 4,
+      "packets": 579,
+      "windows": 8
+    },
+    "push_pull": {
+      "sessions": 4,
+      "packets": 578,
+      "windows": 9
+    },
+    "static": {
+      "sessions": 3,
+      "packets": 309,
+      "windows": 5
+    }
+  },
+  "environmental_conditions": {
+    "rooms": {
+      "Laboratory_Room1": 23
+    },
+    "tx_rx_distances_m": {
+      "2.5": 23
+    },
+    "orientations": {
+      "Unknown": 23
+    }
+  },
+  "signal_quality": {
+    "mean_packet_loss_rate_percent": 1.2,
+    "carrier_frequency_ghz": 2.442,
+    "wifi_channel": 7,
+    "mean_sampling_rate_hz": 35.6,
+    "mean_rssi_dbm": -58.2,
+    "raw_subcarrier_preservation": {
+      "with_raw": 0,
+      "without_raw": 23
+    }
+  },
+  "pilot_milestone_evaluation": {
+    "fall_windows_current": 8,
+    "fall_windows_pilot_target": 35,
+    "pilot_target_reached": false,
+    "progress_percent": 22.86,
+    "fall_windows_needed": 27
+  }
+}

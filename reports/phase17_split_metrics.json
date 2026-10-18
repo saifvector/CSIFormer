@@ -1,0 +1,65 @@
+{
+  "participants": [
+    "Participant_01",
+    "Participant_02"
+  ],
+  "participant_summary": {
+    "Participant_01": {
+      "session_count": 12,
+      "total_packets": 1655,
+      "total_windows": 25,
+      "activity_windows": {
+        "walk": 4,
+        "fall": 4,
+        "sit": 4,
+        "clap": 4,
+        "push_pull": 5,
+        "static": 4
+      }
+    },
+    "Participant_02": {
+      "session_count": 11,
+      "total_packets": 1557,
+      "total_windows": 24,
+      "activity_windows": {
+        "walk": 5,
+        "fall": 4,
+        "sit": 6,
+        "clap": 4,
+        "push_pull": 4,
+        "static": 1
+      }
+    }
+  },
+  "splits_summary": {
+    "train_sessions": 12,
+    "val_sessions": 0,
+    "test_sessions": 11,
+    "train_windows": 25,
+    "val_windows": 0,
+    "test_windows": 24,
+    "total_sessions": 23,
+    "total_windows": 49
+  },
+  "class_coverage": {
+    "train_classes": [
+      "clap",
+      "fall",
+      "push_pull",
+      "sit",
+      "static",
+      "walk"
+    ],
+    "test_classes": [
+      "clap",
+      "fall",
+      "push_pull",
+      "sit",
+      "static",
+      "walk"
+    ],
+    "missing_in_test": []
+  },
+  "three_way_split_feasible": false,
+  "three_way_error_reason": "Only 2 participants present in dataset; minimum 3 required for zero-leakage Train/Val/Test."
+}
