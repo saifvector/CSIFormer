@@ -171,7 +171,16 @@ class ParticipantIndependentSplitGenerator:
 
         # Event and window overlap verification (Invariant check)
         train_test_event_overlap = split_events["train"].intersection(split_events["test"])
+        train_val_event_overlap = split_events["train"].intersection(split_events["val"])
+        val_test_event_overlap = split_events["val"].intersection(split_events["test"])
         assert len(train_test_event_overlap) == 0, f"Event leakage detected between train and test: {train_test_event_overlap}"
+        assert len(train_val_event_overlap) == 0, f"Event leakage detected between train and val: {train_val_event_overlap}"
+        assert len(val_test_event_overlap) == 0, f"Event leakage detected between val and test: {val_test_event_overlap}"
+
+        # Participant overlap verification
+        assert len(set(train_participants).intersection(set(test_p_list))) == 0, "Participant leakage between train and test"
+        assert len(set(train_participants).intersection(set(val_p_list))) == 0, "Participant leakage between train and val"
+        assert len(set(val_p_list).intersection(set(test_p_list))) == 0, "Participant leakage between val and test"
 
         if strict_coverage:
             if len(missing_in_test) > 0:

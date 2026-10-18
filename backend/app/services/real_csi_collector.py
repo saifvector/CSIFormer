@@ -496,8 +496,16 @@ class RealCSICollector:
         self.session_metadata["loss_rate"] = round(pkts_lost / max(1, frame_count + pkts_lost), 4)
         self.session_metadata["mean_sampling_rate_hz"] = round(frame_count / dur_s, 2)
 
-        # 1. Save JSON with metadata + frames
+        # 1. Prevent accidental overwriting of previously collected sessions
+        base_id = session_id
+        counter = 1
         json_path = self.data_dir / f"{session_id}.json"
+        while json_path.exists():
+            session_id = f"{base_id}_v{counter}"
+            json_path = self.data_dir / f"{session_id}.json"
+            counter += 1
+        self.session_metadata["session_id"] = session_id
+
         full_payload = {
             "metadata": self.session_metadata,
             "frame_count": frame_count,
