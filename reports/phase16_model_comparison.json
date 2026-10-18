@@ -1,0 +1,107 @@
+{
+  "timestamp_utc": "2026-10-18T06:45:00Z",
+  "held_out_test_split_n": 11,
+  "total_dataset_n": 49,
+  "held_out_test_results": {
+    "phase13_production_baseline": {
+      "checkpoint": "models/csiformer_phase13_best.pth",
+      "accuracy": 0.2727,
+      "balanced_accuracy": 0.3,
+      "macro_f1": 0.1689,
+      "fall_metrics": {
+        "true_positives": 0,
+        "false_negatives": 2,
+        "false_positives": 0,
+        "true_negatives": 9,
+        "sensitivity_recall": 0.0,
+        "specificity": 1.0,
+        "precision": 0.0,
+        "f1_score": 0.0,
+        "wilson_ci_95": [
+          0.0,
+          0.6576
+        ]
+      }
+    },
+    "phase13_physics_calibrated": {
+      "checkpoint": "models/csiformer_phase13_best.pth (Calibrated Preprocessor)",
+      "accuracy": 0.2727,
+      "balanced_accuracy": 0.3,
+      "macro_f1": 0.2061,
+      "fall_metrics": {
+        "true_positives": 0,
+        "false_negatives": 2,
+        "false_positives": 0,
+        "true_negatives": 9,
+        "sensitivity_recall": 0.0,
+        "specificity": 1.0,
+        "precision": 0.0,
+        "f1_score": 0.0,
+        "wilson_ci_95": [
+          0.0,
+          0.6576
+        ]
+      }
+    },
+    "phase15_experimental_adapted": {
+      "checkpoint": "models/csiformer_phase15_adapted.pth",
+      "accuracy": 0.1818,
+      "balanced_accuracy": 0.2,
+      "macro_f1": 0.2,
+      "fall_metrics": {
+        "true_positives": 1,
+        "false_negatives": 1,
+        "false_positives": 1,
+        "true_negatives": 8,
+        "sensitivity_recall": 0.5,
+        "specificity": 0.8889,
+        "precision": 0.5,
+        "f1_score": 0.5,
+        "wilson_ci_95": [
+          0.0945,
+          0.9055
+        ]
+      }
+    }
+  },
+  "full_dataset_results": {
+    "phase13_production_baseline": {
+      "accuracy": 0.1429,
+      "balanced_accuracy": 0.1435,
+      "macro_f1": 0.0643,
+      "fall_metrics": {
+        "true_positives": 0,
+        "false_negatives": 8,
+        "false_positives": 0,
+        "true_negatives": 41,
+        "sensitivity_recall": 0.0,
+        "specificity": 1.0,
+        "precision": 0.0,
+        "f1_score": 0.0,
+        "wilson_ci_95": [
+          0.0,
+          0.3244
+        ]
+      }
+    },
+    "phase15_experimental_adapted": {
+      "accuracy": 0.2041,
+      "balanced_accuracy": 0.1907,
+      "macro_f1": 0.1844,
+      "fall_metrics": {
+        "true_positives": 1,
+        "false_negatives": 7,
+        "false_positives": 6,
+        "true_negatives": 35,
+        "sensitivity_recall": 0.125,
+        "specificity": 0.8537,
+        "precision": 0.1429,
+        "f1_score": 0.1333,
+        "wilson_ci_95": [
+          0.0224,
+          0.4709
+        ]
+      }
+    }
+  }
+}

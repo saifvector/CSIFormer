@@ -1,0 +1,50 @@
+{
+  "status": "PASS",
+  "timestamp_utc": "2026-10-18T06:12:51Z",
+  "total_sessions": 23,
+  "total_packets": 3212,
+  "total_windows_extracted": 49,
+  "split_windows": {
+    "train": {
+      "walk": 5,
+      "fall": 4,
+      "sit": 5,
+      "clap": 4,
+      "push_pull": 5,
+      "static": 3
+    },
+    "val": {
+      "walk": 2,
+      "fall": 2,
+      "sit": 2,
+      "clap": 2,
+      "push_pull": 2,
+      "static": 2
+    },
+    "test": {
+      "walk": 2,
+      "fall": 2,
+      "sit": 3,
+      "clap": 2,
+      "push_pull": 2
+    }
+  },
+  "checks": {
+    "manifest_file_exists": true,
+    "total_sessions_declared": 23,
+    "missing_files": [],
+    "duplicate_session_ids": [],
+    "invalid_labels": [],
+    "inconsistent_class_mappings": [],
+    "packet_count_mismatches": [],
+    "nan_or_inf_frames": 0,
+    "malformed_frames": 0,
+    "sequence_gaps_total": 0,
+    "timestamp_inversions": 0,
+    "duplicate_windows_across_dataset": 0,
+    "session_split_leakage": [],
+    "participant_train_test_leakage": [
+      "Participant_02"
+    ]
+  }
+}

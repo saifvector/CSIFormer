@@ -308,3 +308,30 @@ class PhysicsCSIPreprocessor:
         """Candidate 3: Doppler Frequency Spectrum (DFS) / Velocity Profile. Shape: [50, 56]"""
         dfs = self.compute_doppler_spectrogram(raw_csi, remove_static=True)
         return torch.from_numpy(dfs.astype(np.float32))
+
+
+class CalibratedPhysicsPreprocessor(PhysicsCSIPreprocessor):
+    """
+    Extends PhysicsCSIPreprocessor with carrier frequency scaling correction
+    (2.385x Doppler scale expansion for 2.442 GHz -> 5.825 GHz equivalence).
+    """
+    def __init__(self, carrier_freq=2.442e9, source_rate_hz=35.58, target_timesteps=50, target_channels=56):
+        super().__init__(carrier_freq, source_rate_hz, target_timesteps, target_channels)
+        self.doppler_scale = 5.825 / 2.442  # 2.385x scaling
+
+    def compute_doppler_spectrogram(self, csi_amplitude: np.ndarray, remove_static: bool = True) -> np.ndarray:
+        # Standard STFT
+        base_dopp = super().compute_doppler_spectrogram(csi_amplitude, remove_static=remove_static)  # [50, 56]
+        
+        # Rescale the Doppler frequency bins (axis 1) by interpolating around DC center
+        n_time, n_freq = base_dopp.shape
+        center = n_freq // 2
+        f_old = np.arange(n_freq) - center
+        f_new = f_old / self.doppler_scale  # Stretch frequencies back to 5.8 GHz scale
+        
+        rescaled_dopp = np.zeros_like(base_dopp)
+        for t in range(n_time):
+            rescaled_dopp[t] = np.interp(f_old, f_new, base_dopp[t])
+        
+        return rescaled_dopp.astype(np.float32)
+

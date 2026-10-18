@@ -353,8 +353,12 @@ class RealCSICollector:
                 "sequence": seq,
                 "rssi": frame["rssi"],
                 "noise": frame["noise_floor"],
+                "raw_amplitudes": raw_amps.tolist(),
+                "raw_phases": raw_phases.tolist(),
+                "raw_num_subcarriers": len(raw_amps),
                 "amplitudes": aligned_amp.tolist(),
-                "phases": aligned_phase.tolist()
+                "phases": aligned_phase.tolist(),
+                "num_subcarriers": len(aligned_amp)
             }
             self.recorded_frames.append(rec_frame)
 
@@ -418,16 +422,25 @@ class RealCSICollector:
         activity_label: str = "walk",
         room_dimensions_m: Tuple[float, float, float] = (4.0, 3.5, 2.8),
         tx_rx_distance_m: float = 2.5,
-        nlos: bool = False
+        nlos: bool = False,
+        orientation: str = "LOS_Facing_TxRx",
+        ground_truth_confirmed: bool = True,
+        notes: str = ""
     ) -> Dict[str, Any]:
         """Initiates a labeled multi-room recording session with full environmental metadata."""
         if room_type not in self.SUPPORTED_ROOMS:
             room_type = "Office"
 
+        # Mark as unknown if not confirmed
+        actual_label = activity_label if ground_truth_confirmed else "unknown"
+
         self.is_recording = True
         self.recorded_frames = []
         clean_name = session_name.replace(" ", "_")
-        self.current_session_id = f"phase14_{clean_name}_{int(time.time())}"
+        self.current_session_id = f"phase16_{clean_name}_{int(time.time())}"
+        self._rec_start_lost = self.packets_lost
+        self._rec_start_received = self.packets_received
+        self._rec_start_time = time.time()
 
         self.session_metadata = {
             "session_id": self.current_session_id,
@@ -435,9 +448,12 @@ class RealCSICollector:
             "room_type": room_type,
             "room_dimensions_xyz_meters": list(room_dimensions_m),
             "tx_rx_distance_meters": tx_rx_distance_m,
+            "orientation": orientation,
             "nlos_obstruction": nlos,
             "participant_id": participant_id,
-            "ground_truth_activity": activity_label,
+            "ground_truth_activity": actual_label,
+            "ground_truth_confirmed": ground_truth_confirmed,
+            "notes": notes,
             "hardware": {
                 "board": "ESP32-S3 (Xtensa LX7)",
                 "chip_revision": "v0.2",
@@ -459,7 +475,7 @@ class RealCSICollector:
             "session_id": self.current_session_id,
             "room_type": room_type,
             "participant": participant_id,
-            "activity": activity_label
+            "activity": actual_label
         }
 
     def stop_session_recording(self) -> Dict[str, Any]:
@@ -470,6 +486,15 @@ class RealCSICollector:
         self.is_recording = False
         frame_count = len(self.recorded_frames)
         session_id = self.current_session_id or f"session_{int(time.time())}"
+        dur_s = max(0.001, time.time() - getattr(self, "_rec_start_time", time.time()))
+        pkts_lost = max(0, self.packets_lost - getattr(self, "_rec_start_lost", 0))
+
+        # Update metadata with packet health and actual duration
+        self.session_metadata["duration_seconds"] = round(dur_s, 2)
+        self.session_metadata["packets_received"] = frame_count
+        self.session_metadata["packets_lost"] = pkts_lost
+        self.session_metadata["loss_rate"] = round(pkts_lost / max(1, frame_count + pkts_lost), 4)
+        self.session_metadata["mean_sampling_rate_hz"] = round(frame_count / dur_s, 2)
 
         # 1. Save JSON with metadata + frames
         json_path = self.data_dir / f"{session_id}.json"
