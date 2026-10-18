@@ -21,13 +21,13 @@ from pathlib import Path
 from typing import Dict, Any, Optional, Tuple, List
 import numpy as np
 
-BASE_DIR = Path(__file__).resolve().parent.parent.parent
-sys.path.append(str(BASE_DIR))
-sys.path.append(str(BASE_DIR / "backend"))
+ROOT_DIR = Path(__file__).resolve().parent.parent.parent.parent
+sys.path.append(str(ROOT_DIR))
+sys.path.append(str(ROOT_DIR / "backend"))
 
 from app.services.real_csi_collector import RealCSICollector
 
-DATASET_DIR = BASE_DIR / "data" / "real_csi_dataset"
+DATASET_DIR = ROOT_DIR / "data" / "real_csi_dataset"
 DATASET_DIR.mkdir(parents=True, exist_ok=True)
 
 VALID_LABELS = {

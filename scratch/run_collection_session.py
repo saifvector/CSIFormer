@@ -29,12 +29,14 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 sys.path.append(str(BASE_DIR))
 sys.path.append(str(BASE_DIR / "backend"))
 
-from app.services.collection_workflow import CollectionWorkflowManager, VALID_LABELS
+from app.services.collection_workflow import CollectionWorkflowManager, VALID_LABELS, DATASET_DIR
+from app.services.session_validator import DatasetIntegrityValidator
 
 def main():
-    parser = argparse.ArgumentParser(description="CSIFormer Phase 18 Standardized Real-Data Collection")
+    parser = argparse.ArgumentParser(description="CSIFormer Phase 20 Standardized Real-Data Collection")
     parser.add_argument("--port", default="COM5", help="Serial port of ESP32-S3 (default COM5)")
     parser.add_argument("--verify", action="store_true", help="Verify hardware connection and stream only")
+    parser.add_argument("--validate", action="store_true", help="Validate existing dataset manifest and session files")
     parser.add_argument("--activity", choices=list(VALID_LABELS.keys()), default="walk", help="Activity label")
     parser.add_argument("--participant", default="Participant_03", help="Pseudonymized participant ID")
     parser.add_argument("--duration", type=float, default=4.0, help="Duration in seconds (default 4.0)")
@@ -49,6 +51,22 @@ def main():
     parser.add_argument("--notes", default="", help="Observational notes (e.g. mat setup)")
 
     args = parser.parse_args()
+
+    if args.validate:
+        print("=" * 80)
+        print("DATASET INTEGRITY & VALIDATION CHECK (PHASE 20)")
+        print("=" * 80)
+        validator = DatasetIntegrityValidator(DATASET_DIR)
+        res = validator.validate_dataset_manifest()
+        print(f"Manifest Status:        {'VALID' if res['all_sessions_valid'] else 'INVALID'}")
+        print(f"Total Sessions:         {res['total_sessions']}")
+        print(f"Total Packets:          {res['total_packets']}")
+        print(f"Total Windows (50 frames): {res['total_windows']}")
+        print(f"Distinct Participants:  {res['distinct_participants']}")
+        print(f"Distinct Events:        {res['distinct_events']}")
+        print(f"Activity Windows:       {res['activity_windows']}")
+        print("=" * 80)
+        return
 
     manager = CollectionWorkflowManager(port=args.port)
 
@@ -67,7 +85,7 @@ def main():
         return
 
     print("=" * 80)
-    print("PHASE 18 — PHYSICAL CSI COLLECTION SESSION")
+    print("PHASE 20 — PHYSICAL CSI COLLECTION SESSION")
     print("=" * 80)
     print(f"Activity:       {args.activity.upper()} ({VALID_LABELS[args.activity]['name']})")
     print(f"Participant:    {args.participant}")
