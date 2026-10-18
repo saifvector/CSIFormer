@@ -15,11 +15,11 @@
     "frequency_ghz": 2.442
   },
   "splits_summary": {
-    "train_sessions": 12,
+    "train_sessions": 13,
     "val_sessions": 6,
     "test_sessions": 5,
-    "total_sessions": 23,
-    "total_frames": 3212
+    "total_sessions": 24,
+    "total_frames": 3355
   },
   "sessions": [
     {
@@ -458,6 +458,31 @@
       "mean_rssi_dbm": -53.5,
       "json_file": "phase14_p15_real_static_t3_1792303966_1792303966.json",
       "csv_file": "phase14_p15_real_static_t3_1792303966_1792303966.csv"
+    },
+    {
+      "session_id": "phase16_real_walk_Participant_03_1792339078_1792339078",
+      "event_id": "evt_walk_Participant_03_1792339078",
+      "activity_label": "walk",
+      "class_id": 11,
+      "description": "Walking in LOS",
+      "confirmation_status": "confirmed",
+      "participant_id": "Participant_03",
+      "split": "train",
+      "room": "Laboratory",
+      "tx_rx_distance_m": 2.5,
+      "tx_position": "Tx_Baseline_Origin",
+      "rx_position": "Rx_Baseline_Node",
+      "orientation": "LOS_Facing_TxRx",
+      "carrier_frequency_ghz": 2.442,
+      "wifi_channel": 7,
+      "bssid": "98:ba:5f:ef:28:26",
+      "duration_seconds": 4.02,
+      "packet_count": 143,
+      "sampling_rate_hz": 35.56,
+      "mean_rssi_dbm": -58.0,
+      "subcarrier_alignment_method": "linear_interpolation_to_56",
+      "json_file": "phase16_real_walk_Participant_03_1792339078_1792339078.json",
+      "csv_file": "phase16_real_walk_Participant_03_1792339078_1792339078.csv"
     }
   ]
 }
