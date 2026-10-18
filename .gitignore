@@ -24,6 +24,8 @@ dataset/
 data/recordings/*.mat
 data/recordings/*.dat
 data/recordings/*.bin
+data/recordings/*.csv
+data/recordings/*.json
 
 # System & IDE files
 .DS_Store

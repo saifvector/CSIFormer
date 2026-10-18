@@ -1,0 +1,54 @@
+{
+  "amplitude": {
+    "widar_mean": -2.9046194782722523e-08,
+    "widar_std": 1.0,
+    "widar_p10_p90_range": [
+      -1.183054804801941,
+      1.265853762626648
+    ],
+    "widar_skew": -0.20908328890800476,
+    "widar_kurtosis": 0.5890505313873291,
+    "widar_adc_bits": 10,
+    "esp32_mean": 16.041061401367188,
+    "esp32_std": 2.8839216232299805,
+    "esp32_p10_p90_range": [
+      12.0,
+      20.0
+    ],
+    "esp32_skew": -0.03587346151471138,
+    "esp32_kurtosis": -1.1529325246810913,
+    "esp32_adc_bits": 8
+  },
+  "phase": {
+    "widar_residual_noise_rad": 0.1467207646163626,
+    "esp32_residual_noise_rad": 1.3286529916915646,
+    "noise_ratio_esp32_vs_widar": 9.06
+  },
+  "doppler": {
+    "widar_dfs_spectral_entropy": 3.400204658508301,
+    "esp32_dfs_spectral_entropy": 3.6617531776428223,
+    "spread_ratio": 1.08
+  },
+  "rf_rf_channel": {
+    "widar_center_freq_ghz": 5.825,
+    "widar_bandwidth_mhz": 20.0,
+    "widar_subcarriers": 30,
+    "widar_sampling_hz": 1000.0,
+    "widar_noise_floor_dbm": -92.0,
+    "widar_snr_db": 32.5,
+    "widar_packet_loss_pct": 0.05,
+    "widar_jitter_ms": 0.8,
+    "esp32_center_freq_ghz": 2.442,
+    "esp32_bandwidth_mhz": 20.0,
+    "esp32_subcarriers": 56,
+    "esp32_sampling_hz": 30.0,
+    "esp32_noise_floor_dbm": -95.0,
+    "esp32_snr_db": 39.8,
+    "esp32_packet_loss_pct": 2.45,
+    "esp32_jitter_ms": 4.12
+  },
+  "temporal_coherence": {
+    "widar_coherence_time_ms": 76.59,
+    "esp32_coherence_time_ms": 33.29999999999999
+  }
+}

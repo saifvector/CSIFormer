@@ -1,0 +1,158 @@
+{
+  "timestamp": "2026-10-18T05:46:34Z",
+  "port": "COM5",
+  "device": "cuda",
+  "windows_evaluated": 300,
+  "latency_stats_ms": {
+    "p50_total": 16.27,
+    "p95_total": 20.49,
+    "p99_total": 23.12,
+    "p50_inference": 7.03,
+    "p99_inference": 11.33,
+    "p50_preprocessing": 9.06,
+    "p99_preprocessing": 13.85
+  },
+  "throughput_fps": 61.5,
+  "validation_rejection_audit": {
+    "total_rejected": 4,
+    "reasons": {
+      "invalid_shape_(30, 56)": 1,
+      "invalid_shape_(50, 30)": 1,
+      "contains_nan_or_inf": 1,
+      "flatline_dead_sensor": 1
+    },
+    "passed": true
+  },
+  "sample_predictions": [
+    {
+      "window_id": 0,
+      "label": "Clap (Widar)",
+      "confidence": 0.8952,
+      "top3": [
+        "Clap (Widar)",
+        "Slide (Widar)",
+        "Push&Pull (Widar)"
+      ],
+      "raw_gate": 0.5,
+      "dopp_gate": 0.5,
+      "e2e_latency_ms": 17.471
+    },
+    {
+      "window_id": 1,
+      "label": "Clap (Widar)",
+      "confidence": 0.8912,
+      "top3": [
+        "Clap (Widar)",
+        "Slide (Widar)",
+        "Push&Pull (Widar)"
+      ],
+      "raw_gate": 0.5,
+      "dopp_gate": 0.5,
+      "e2e_latency_ms": 15.761
+    },
+    {
+      "window_id": 2,
+      "label": "Clap (Widar)",
+      "confidence": 0.9232,
+      "top3": [
+        "Clap (Widar)",
+        "Slide (Widar)",
+        "Push&Pull (Widar)"
+      ],
+      "raw_gate": 0.5,
+      "dopp_gate": 0.5,
+      "e2e_latency_ms": 16.799
+    },
+    {
+      "window_id": 3,
+      "label": "Clap (Widar)",
+      "confidence": 0.9363,
+      "top3": [
+        "Clap (Widar)",
+        "Slide (Widar)",
+        "Push&Pull (Widar)"
+      ],
+      "raw_gate": 0.5,
+      "dopp_gate": 0.5,
+      "e2e_latency_ms": 17.498
+    },
+    {
+      "window_id": 4,
+      "label": "Clap (Widar)",
+      "confidence": 0.9307,
+      "top3": [
+        "Clap (Widar)",
+        "Slide (Widar)",
+        "Push&Pull (Widar)"
+      ],
+      "raw_gate": 0.5,
+      "dopp_gate": 0.5,
+      "e2e_latency_ms": 15.522
+    },
+    {
+      "window_id": 5,
+      "label": "Clap (Widar)",
+      "confidence": 0.9375,
+      "top3": [
+        "Clap (Widar)",
+        "Slide (Widar)",
+        "Push&Pull (Widar)"
+      ],
+      "raw_gate": 0.5,
+      "dopp_gate": 0.5,
+      "e2e_latency_ms": 15.167
+    },
+    {
+      "window_id": 6,
+      "label": "Clap (Widar)",
+      "confidence": 0.9186,
+      "top3": [
+        "Clap (Widar)",
+        "Slide (Widar)",
+        "Push&Pull (Widar)"
+      ],
+      "raw_gate": 0.5,
+      "dopp_gate": 0.5,
+      "e2e_latency_ms": 15.422
+    },
+    {
+      "window_id": 7,
+      "label": "Clap (Widar)",
+      "confidence": 0.8869,
+      "top3": [
+        "Clap (Widar)",
+        "Slide (Widar)",
+        "Push&Pull (Widar)"
+      ],
+      "raw_gate": 0.5,
+      "dopp_gate": 0.5,
+      "e2e_latency_ms": 16.104
+    },
+    {
+      "window_id": 8,
+      "label": "Clap (Widar)",
+      "confidence": 0.918,
+      "top3": [
+        "Clap (Widar)",
+        "Slide (Widar)",
+        "Push&Pull (Widar)"
+      ],
+      "raw_gate": 0.5,
+      "dopp_gate": 0.5,
+      "e2e_latency_ms": 15.042
+    },
+    {
+      "window_id": 9,
+      "label": "Clap (Widar)",
+      "confidence": 0.9373,
+      "top3": [
+        "Clap (Widar)",
+        "Slide (Widar)",
+        "Push&Pull (Widar)"
+      ],
+      "raw_gate": 0.5,
+      "dopp_gate": 0.5,
+      "e2e_latency_ms": 15.634
+    }
+  ]
+}

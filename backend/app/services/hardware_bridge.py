@@ -59,7 +59,7 @@ class ESP32S3CSISerialProvider(CSIDataProvider):
     Parses ASCII strings matching ESP32-S3 firmware protocol:
     CSI_DATA,<mac>,<rssi>,<noise>,<seq>,<num_sc>,[amp_0:phase_0,amp_1:phase_1,...]
     """
-    def __init__(self, port: str = "COM3", baud_rate: int = 921600):
+    def __init__(self, port: str = "COM5", baud_rate: int = 115200):
         self.port = port
         self.baud_rate = baud_rate
         self.mode = "esp32_serial"

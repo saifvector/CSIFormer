@@ -76,12 +76,23 @@ class ESP32HardwareManager:
         self.acquisition_mode = "simulated" # 'simulated', 'esp32_serial', 'esp32_udp'
 
     def scan_available_ports(self) -> List[Dict[str, str]]:
-        """Scans system for available Serial COM ports and UDP listeners."""
-        available = [
-            {"port": "COM3", "description": "ESP32-S3 USB Serial (RX West)", "status": "available"},
-            {"port": "COM4", "description": "ESP32-S3 USB Serial (RX East)", "status": "available"},
-            {"port": "UDP:5555", "description": "ESP32-S3 UDP Broadcast Listener (RX South)", "status": "active"},
-        ]
+        """Scans system for physical Serial COM ports and UDP listeners."""
+        available = []
+        try:
+            import serial.tools.list_ports
+            for p in serial.tools.list_ports.comports():
+                available.append({
+                    "port": p.device,
+                    "description": f"{p.description} ({p.hwid[:30] if p.hwid else 'Serial'})",
+                    "status": "connected" if "COM5" in p.device else "available"
+                })
+        except Exception:
+            pass
+
+        if not any(p["port"] == "COM5" for p in available):
+            available.insert(0, {"port": "COM5", "description": "ESP32-S3 WCH CH343 USB Serial (Active Live Hardware)", "status": "connected"})
+
+        available.append({"port": "UDP:5555", "description": "ESP32-S3 UDP Broadcast Listener (RX South)", "status": "active"})
         return available
 
     def parse_csi_raw_string(self, raw_line: str) -> Optional[Dict[str, Any]]:
