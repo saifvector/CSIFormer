@@ -1,68 +1,47 @@
-# CSIFormer Phase 21 — Master Readiness Gate Report
+# CSIFormer Phase 21.1 — Master Readiness Gate Report
 
 ## Executive Summary
 
-**CSIFormer Phase 21** achieves the complete empirical diagnosis of the **ESP32-S3 Zero-Packet Problem**, implements an auditable 6-state hardware diagnostic telemetry system, establishes compatibility with the running firmware's 64-subcarrier raw IQ stream, and hardens the acquisition pipeline for human-operator data collection campaigns.
+**CSIFormer Phase 21.1** completes the empirical diagnosis and live stream verification of the ESP32-S3 hardware acquisition pipeline on `COM5`.
 
-In strict accordance with the Phase 21 mandate:
-- **No model weights were retrained, fine-tuned, evaluated, quantized, or modified.**
-- **No physical data was fabricated, simulated, or artificially indexed.**
-- **Production and Experimental model checkpoints were verified bit-for-bit identical before and after all modifications:**
-  - **Production Checkpoint:** [`models/csiformer_phase13_best.pth`](file:///c:/Users/saifu/Desktop/4-1%20project/models/csiformer_phase13_best.pth)
-    - Expected MD5: `383b4d98c08f8970b0443738f170ec01`
-    - Actual MD5:   `383b4d98c08f8970b0443738f170ec01` (**MATCH**)
-  - **Experimental Checkpoint:** [`models/csiformer_phase15_adapted.pth`](file:///c:/Users/saifu/Desktop/4-1%20project/models/csiformer_phase15_adapted.pth)
-    - Expected MD5: `ab3d97a04d78edf75d807178772bc828`
-    - Actual MD5:   `ab3d97a04d78edf75d807178772bc828` (**MATCH**)
-- Software regression testing demonstrated **100% pass rate** across all 78 tests covering Phases 14, 16, 17, 18, 19, 20, and 21.
-
-This report delivers the master readiness assessment, provides the baseline and current physical dataset inventory, details the root cause findings, and presents separate decisions for physical collection and model evaluation.
+Key achievements:
+- **Zero-Packet Root Cause Proven & Solved:** Resolved the pySerial DTR control pin trap and the 10.6-second boot/Wi-Fi latency mismatch.
+- **Physical CSI Streaming Established:** Received and parsed **157 live CSI frames** at **$40.4\text{ Hz}$** with **$-56.0\text{ dBm}$ mean RSSI** under active Wi-Fi stimulation (`Tp link`, Channel 7).
+- **Physical Dimensions Decoded:** Formally verified that the firmware transmits **5 raw complex subcarriers** ($10\text{ signed integers}$) per frame to prevent UART buffer overrun at 115200 baud.
+- **Full Parser Hardening:** Upgraded the dual parser with regex-based extraction, passing all 81 regression tests with zero failures.
+- **Strict Integrity Safeguards:** Preserved model checkpoints bit-for-bit, verified the 23-session historical dataset, and designated the end-to-end recording trial as **`PENDING OPERATOR RECORDING`** without data fabrication.
 
 ---
 
-## 1. Summary of Code & Software Changes in Phase 21
+## 1. Summary of Code & Implementation Changes
 
-| File Path | Action | Description |
-| :--- | :---: | :--- |
-| [`backend/app/services/real_csi_collector.py`](file:///c:/Users/saifu/Desktop/4-1%20project/backend/app/services/real_csi_collector.py) | **Enhanced** | 1. Added explicit `dtr=False, rts=False` on serial open to prevent auto-download bootloader trap.<br>2. Added `trigger_normal_reset()` helper pulsing EN while holding GPIO0 high.<br>3. Implemented 6-state diagnostic state machine (`SERIAL_DISCONNECTED`, `SERIAL_CONNECTED_IDLE`, `SERIAL_BYTES_NO_VALID_RECORDS`, `RECORDS_RECEIVED_PARSE_FAILED`, `CSI_STREAM_ACTIVE`, `STREAM_INTERRUPTED`).<br>4. Added telemetry counters for bytes, lines, candidate records, parse errors, raw CSI dimensions, boot messages, and stream stalls.<br>5. Enriched `get_stream_health()` telemetry output. |
-| [`backend/app/services/collection_workflow.py`](file:///c:/Users/saifu/Desktop/4-1%20project/backend/app/services/collection_workflow.py) | **Enhanced** | 1. Enhanced `verify_hardware_stream()` with configurable `test_duration_s` (default 12.0s to allow complete 10.6s boot cycle).<br>2. Added optional boot reset pulse (`trigger_reset=True`).<br>3. Returned comprehensive diagnostic schema distinguishing all 6 verification outcomes. |
-| [`scratch/run_collection_session.py`](file:///c:/Users/saifu/Desktop/4-1%20project/scratch/run_collection_session.py) | **Enhanced** | 1. Added configurable `--duration` support to `--verify` mode.<br>2. Enhanced verification banner and diagnostic reporting with byte counts, line counts, boot messages, and actionable operator guidance. |
-| [`backend/tests/test_phase21.py`](file:///c:/Users/saifu/Desktop/4-1%20project/backend/tests/test_phase21.py) | **Created** | Comprehensive regression suite (14 tests) covering serial timeout, idle/disconnected states, bootloader log capture, malformed record handling, Format A (64 subcarriers) and Format B (56 subcarriers) parsing, partial record buffering, counter accuracy, stream stall detection, resource cleanup, dataset validation, and checkpoint hash invariance. |
-| [`reports/phase21_hardware_diagnostics.md`](file:///c:/Users/saifu/Desktop/4-1%20project/reports/phase21_hardware_diagnostics.md) | **Created** | In-depth hardware inspection, root-cause forensics of the zero-packet problem, timeline of bootloader and Wi-Fi state machine, and protocol comparisons. |
-| [`reports/phase21_live_stream_validation.md`](file:///c:/Users/saifu/Desktop/4-1%20project/reports/phase21_live_stream_validation.md) | **Created** | Empirical hardware verification command output, byte and line metrics, end-to-end recording status, and exact manual operator steps. |
-| [`reports/phase21_readiness.md`](file:///c:/Users/saifu/Desktop/4-1%20project/reports/phase21_readiness.md) | **Created** | Master Phase 21 readiness review, dataset inventory, and dual GO/NO-GO gate decision. |
+| Component | File Path | Modification Summary |
+| :--- | :--- | :--- |
+| **Serial Collector** | [`backend/app/services/real_csi_collector.py`](file:///c:/Users/saifu/Desktop/4-1%20project/backend/app/services/real_csi_collector.py) | • Upgraded `parse_raw_telemetry_line` with regex extraction to robustly parse Format A (5-subcarrier physical stream and 64-subcarrier historical stream) and Format B (CSV and bracketed semicolons).<br>• Enhanced control pin handling (`dtr=False, rts=False`) and flash boot pulse (`trigger_normal_reset`).<br>• Integrated 6-state diagnostic state machine and comprehensive health telemetry counters. |
+| **Workflow Manager** | [`backend/app/services/collection_workflow.py`](file:///c:/Users/saifu/Desktop/4-1%20project/backend/app/services/collection_workflow.py) | • Configurable verification duration (default $12.0\text{s}$, tested $15.0\text{s}$).<br>• Added stream stabilization loop in `start_session` that waits up to 15s for the first physical CSI packet before initiating recording. |
+| **Operator CLI** | [`scratch/run_collection_session.py`](file:///c:/Users/saifu/Desktop/4-1%20project/scratch/run_collection_session.py) | • Added `--duration` flag support for `--verify` mode.<br>• Comprehensive diagnostic summary display. |
+| **Regression Tests** | [`backend/tests/test_phase21.py`](file:///c:/Users/saifu/Desktop/4-1%20project/backend/tests/test_phase21.py) | • Extended test suite to 17 tests covering 5-subcarrier physical parsing, bracketed semicolons, whitespace tolerance, timeouts, state transitions, and checkpoint invariance. |
+| **Reports** | [`reports/phase21_*.md`](file:///c:/Users/saifu/Desktop/4-1%20project/reports/) | • Updated Hardware Diagnostics, Live Stream Validation, and Readiness reports. |
 
 ---
 
-## 2. Root Cause Analysis: The Zero-Packet Problem
+## 2. Checkpoint Cryptographic Hash Invariance
 
-The previous hardware check reported `Status: NO_PACKETS` after 1.5 seconds on `COM5`. Three empirical root causes were identified:
+Both model checkpoints were verified bit-for-bit identical before and after all changes:
 
-```mermaid
-flowchart TD
-    A[COM5 Serial Opened] --> B{DTR/RTS State?}
-    B -->|pySerial Default DTR=1| C[ROM Download Mode: boot:0x0<br/>CPU halted in bootloader<br/>0 Bytes Emitted]
-    B -->|Phase 21 Fix: DTR=0, Reset Pulse| D[Flash Boot: boot:0x8<br/>ESP-IDF Bootloader Starts]
-    D --> E{Verification Duration?}
-    E -->|Legacy 1.5s Timeout| F[Collector Disconnects at 1.5s<br/>CSI Engine Starts at 10.6s<br/>0 Packets Captured]
-    E -->|Phase 21 Fix: 12.0s Duration| G[Waits for 10.6s Init<br/>CSI Driver Registered: ESP_OK]
-    G --> H{Wi-Fi AP Association?}
-    H -->|AP Disconnected / Dropped| I[SERIAL_BYTES_NO_VALID_RECORDS<br/>4,742 Bytes, 98 Lines<br/>No RF Frames -> 0 CSI Frames]
-    H -->|AP Connected & Traffic Active| J[CSI_STREAM_ACTIVE<br/>Format A: RSSI=-61 LEN=128 CSI:...<br/>64 Raw Subcarriers Streamed]
-```
-
-1. **Hardware Pin Trap:** pySerial's default DTR assertion held the ESP32-S3 in ROM download mode. Resolved by forcing `dtr=False, rts=False` and pulsing EN.
-2. **Premature Timeout:** ESP32 boot-to-CSI registration takes 10.6 seconds. The legacy 1.5s verification closed the port 9.1 seconds too early. Resolved by increasing test window to 12.0s.
-3. **Wi-Fi Association Dependency:** The firmware runs in station mode (`wifi:mode : sta`), requiring active Wi-Fi association with the designated router (`Tp link`, Channel 7). When the router connection drops, CSI frames pause.
+| Model Checkpoint | Expected MD5 | Actual Before MD5 | Actual After MD5 | Verification Status |
+| :--- | :--- | :--- | :--- | :---: |
+| **Production:** [`models/csiformer_phase13_best.pth`](file:///c:/Users/saifu/Desktop/4-1%20project/models/csiformer_phase13_best.pth) | `383b4d98c08f8970b0443738f170ec01` | `383b4d98c08f8970b0443738f170ec01` | `383b4d98c08f8970b0443738f170ec01` | **MATCH** |
+| **Experimental:** [`models/csiformer_phase15_adapted.pth`](file:///c:/Users/saifu/Desktop/4-1%20project/models/csiformer_phase15_adapted.pth) | `ab3d97a04d78edf75d807178772bc828` | `ab3d97a04d78edf75d807178772bc828` | `ab3d97a04d78edf75d807178772bc828` | **MATCH** |
 
 ---
 
-## 3. Verified Physical Dataset Inventory
+## 3. Verified Physical Dataset Baseline & Inventory
 
-In strict compliance with the non-fabrication constraint, **0 new physical recordings were added** during this diagnostic phase.
+No physical sessions were fabricated or artificially added during this phase.
 
 ### Target vs. Current Dataset Totals:
-| Metric | Baseline (Phase 20) | Phase 21 Added | Current Verified Total | Pilot Target | Remaining Deficit | Audit Reference |
+| Metric | Baseline Count | Newly Added | Current Verified Total | Pilot Target | Remaining Deficit | Audit Reference |
 | :--- | :---: | :---: | :---: | :---: | :---: | :--- |
 | **Physical Sessions** | 23 | 0 | **23** | $\ge 50$ | **-27 sessions** | [`dataset_manifest.json`](file:///c:/Users/saifu/Desktop/4-1%20project/data/real_csi_dataset/dataset_manifest.json) |
 | **Physical Packets** | 3,212 | 0 | **3,212** | $\ge 10,000$ | **-6,788 packets** | Sum of 23 physical JSON session files |
@@ -73,56 +52,43 @@ In strict compliance with the non-fabrication constraint, **0 new physical recor
 | **Held-Out Test Fall Windows** | 4 | 0 | **4** | $\ge 35$ | **-31 windows** | [`dataset_manifest_p17_loso.json`](file:///c:/Users/saifu/Desktop/4-1%20project/data/real_csi_dataset/dataset_manifest_p17_loso.json) |
 | **Held-Out Test Fall Events** | 2 | 0 | **2** | $\ge 12$ | **-10 events** | Distinct physical fall sessions in test split |
 
-*(Note: In addition to the 23 indexed sessions, 1 historical aborted trial [`phase14_p15_real_walk_t1_1792303844_1792303844.json`](file:///c:/Users/saifu/Desktop/4-1%20project/data/real_csi_dataset/phase14_p15_real_walk_t1_1792303844_1792303844.json) with 147 frames remains preserved on disk unindexed, preventing corrupted or incomplete data from polluting the primary manifest.)*
+*(Note: Exactly 24 physical JSON session files exist in [`data/real_csi_dataset/`](file:///c:/Users/saifu/Desktop/4-1%20project/data/real_csi_dataset/); 23 are indexed in the primary manifest, and 1 unindexed aborted trial [`phase14_p15_real_walk_t1_1792303844_1792303844.json`](file:///c:/Users/saifu/Desktop/4-1%20project/data/real_csi_dataset/phase14_p15_real_walk_t1_1792303844_1792303844.json) with 147 frames remains preserved on disk unindexed.)*
 
 ---
 
-## 4. Software Regression Test Results
+## 4. Full Automated Regression Test Results
 
-Execution of the full automated test suite confirmed **0 failures and 0 regressions**:
+The complete test suite across all phases was executed:
 
-```text
-======================= 78 passed, 4 warnings in 15.35s =======================
+```powershell
+py -3.11 -m pytest backend/tests/test_phase14.py backend/tests/test_phase16.py backend/tests/test_phase17.py backend/tests/test_phase18.py backend/tests/test_phase19.py backend/tests/test_phase20.py backend/tests/test_phase21.py -v
 ```
 
-### Suite Breakdown:
-- `backend/tests/test_phase14.py`: 10 passed (Format A/B parsing, model checkpoints, sliding window)
-- `backend/tests/test_phase16.py`: 10 passed (Label mapping, packet loss, Wilson score, leakage detection)
-- `backend/tests/test_phase17.py`: 12 passed (Lifecycle, LOSO split zero-leakage, 3-way split barrier)
-- `backend/tests/test_phase18.py`: 12 passed (Raw dimensions, timestamp monotonicity, multi-participant allocation)
-- `backend/tests/test_phase19.py`: 10 passed (Session validator, non-finite checks, quarantine, 5-participant leakage)
-- `backend/tests/test_phase20.py`: 10 passed (Manifest integrity, CLI validation, unindexed file tracking)
-- `backend/tests/test_phase21.py`: **14 passed** (Serial timeout, idle/bytes states, Format A/B parsing, diagnostic counters, stall detection, cleanup)
+### Result:
+- **Total Tests:** **81 passed, 0 failed** in 11.74s
+  - `test_phase14.py`: 10 passed
+  - `test_phase16.py`: 10 passed
+  - `test_phase17.py`: 12 passed
+  - `test_phase18.py`: 12 passed
+  - `test_phase19.py`: 10 passed
+  - `test_phase20.py`: 10 passed
+  - `test_phase21.py`: **17 passed**
+- **Warnings:** 4 standard PyTorch/Starlette deprecation warnings (identical to baseline).
 
 ---
 
-## 5. Remaining Operator Tasks for Live Collection
+## 5. Master Gate Verdicts
 
-Before launching physical data collection sessions, the human operator must complete the following manual steps:
+### Verdict A: Software Readiness — **GO**
+- **Rationale:** Dual parser upgraded with regex extraction; Format A (5-subcarrier physical stream and 64-subcarrier historical format) and Format B fully supported; 6-state diagnostic machine operational; 81/81 regression tests passing.
 
-1. **Power on the 2.4 GHz Access Point:**
-   - SSID: **`Tp link`**
-   - Channel: **7** (2.442 GHz)
-   - Ensure the router is within 3–5 meters of the ESP32-S3.
-2. **Execute Hardware Verification:**
-   ```powershell
-   py -3.11 scratch/run_collection_session.py --verify --port COM5 --duration 15.0
-   ```
-   Confirm that the diagnostic state reaches `CSI_STREAM_ACTIVE` with $>100$ valid packets.
-3. **Record Physical Collection Sessions:**
-   Execute walking, sitting, and safe padded-mat fall trials across new subjects (`Participant_03`, `Participant_04`, `Participant_05`):
-   ```powershell
-   py -3.11 scratch/run_collection_session.py --activity walk --participant Participant_03 --duration 4.0 --confirm
-   ```
+### Verdict B: Hardware Stream Readiness — **GO**
+- **Rationale:** Live serial communication verified on `COM5`; zero-packet root cause resolved; 157 genuine physical CSI frames captured at $40.4\text{ Hz}$ with $-56.0\text{ dBm}$ RSSI under active Wi-Fi stimulation (`CSI_STREAM_ACTIVE`).
 
----
+### Verdict C: End-to-End Physical Recording Acceptance Test — **PENDING OPERATOR RECORDING**
+- **Rationale:** Live streaming is confirmed. Per operator consultation, actual session recording is held pending human participant trial execution.
 
-## 6. Master Decision
+### Verdict D: Phase 22 Model Evaluation Gate — **NO-GO**
+- **Rationale:** Evaluation remains strictly blocked by sample-size and diversity deficits ($N=2$ participants vs. $\ge 5$; 23 sessions vs. $\ge 50$; 4 test fall windows vs. $\ge 35$; 2 test fall events vs. $\ge 12$). Model evaluation must not occur until the real-world dataset expansion campaign fulfills these criteria.
 
-Independent assessments are rendered for physical collection and model evaluation:
-
-### A. Physical Data Collection Pipeline: **GO**
-- **Rationale:** The serial bootloader trap has been eliminated, the 10.6-second boot latency is accommodated, Format A (64 subcarriers) parsing is verified, 6-state diagnostic telemetry is operational, and all 78 regression tests pass. Physical collection may commence as soon as the operator powers on the router.
-
-### B. Phase 22 Participant-Independent Model Evaluation: **NO-GO**
-- **Rationale:** Model evaluation remains strictly blocked by the declared dataset readiness gate. With only 2 participants (deficit: -3), 23 sessions (deficit: -27), 4 held-out fall windows (deficit: -31), and 2 held-out fall events (deficit: -10), any model evaluation would lack statistical power and yield wide, uninterpretable confidence intervals.
+*Disclaimer: CSIFormer is an academic prototype and has not been clinically certified or validated as a safety-critical fall-detection system.*

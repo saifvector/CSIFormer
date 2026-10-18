@@ -186,8 +186,12 @@ class CollectionWorkflowManager:
         self.collector.start_streaming()
         self.stimulator.start()
 
-        # Let packet stream stabilize
-        time.sleep(0.3)
+        # Let packet stream stabilize after hardware connection/boot (wait for first packet or max 15s)
+        t_start_wait = time.time()
+        while time.time() - t_start_wait < 15.0:
+            if self.collector.csi_packets_parsed > 0:
+                break
+            time.sleep(0.2)
 
         clean_label = activity_label.lower()
         clean_pid = participant_id.replace(" ", "_")

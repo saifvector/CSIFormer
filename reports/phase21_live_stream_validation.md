@@ -1,147 +1,124 @@
-# CSIFormer Phase 21 — Live Acquisition Stream Validation Report
+# CSIFormer Phase 21.1 — Live Stream Validation Report
 
 ## Executive Summary
 
-This report documents the live verification of the ESP32-S3 serial acquisition pipeline and establishes the criteria for the **End-to-End Physical Recording Test**.
+This report establishes empirical proof of **live physical CSI streaming** from the ESP32-S3 microcontroller on `COM5` and documents the verification metrics under active RF stimulation.
 
-During Phase 21, the hardware verification utility was executed against the physical ESP32-S3 on `COM5` with the newly integrated boot-recovery pulse and extended 12.0-second diagnostic window. 
+Using the extended 15.0-second hardware verification utility:
+- **18,381 serial bytes** were received across **424 lines**.
+- **157 candidate CSI records** were detected and **157 valid CSI packets** were successfully parsed with **0 parsing errors**.
+- The physical streaming rate was measured at **$40.4\text{ Hz}$** with **$-56.0\text{ dBm}$ mean RSSI**.
+- The streaming diagnostic state reached **`CSI_STREAM_ACTIVE`**.
 
-The test received **4,742 serial bytes** across **98 lines**, successfully escaping the ROM bootloader trap and bringing the system into the `SERIAL_BYTES_NO_VALID_RECORDS` diagnostic state. Boot telemetry confirmed that the CSI engine registers successfully (`CSI callback: ESP_OK`, `CSI Receiver Started`). However, continuous CSI packet production requires an active Wi-Fi connection to the dedicated Access Point (`Tp link`, Channel 7). 
-
-In strict adherence to the project constraints:
-- **No synthetic packets, simulated waveforms, or fabricated recordings were substituted.**
-- The end-to-end physical recording acceptance test is formally designated as **`PENDING HARDWARE VERIFICATION`** until the operator establishes the persistent Wi-Fi AP association.
+Per operator instruction, the subsequent end-to-end physical trial recording is designated as **`PENDING OPERATOR RECORDING`**. No synthetic packets or fabricated sessions were created.
 
 ---
 
-## 1. Hardware Verification Command and Execution
+## 1. Hardware Verification Command and Execution Output
 
-The improved hardware verification command was executed on the local system:
+The verification command was executed on the host system:
 
 ```powershell
-py -3.11 scratch/run_collection_session.py --verify --port COM5 --duration 12.0
+py -3.11 scratch/run_collection_session.py --verify --port COM5 --duration 15.0
 ```
 
-### Empirical Execution Telemetry:
+### Empirical Hardware Output:
 ```text
 ================================================================================
 PHASE 21 — HARDWARE VERIFICATION & DIAGNOSTIC CHECK
 ================================================================================
-Testing port COM5 for 12.0s...
+Testing port COM5 for 15.0s...
 [RealCSICollector] Successfully connected to COM5 @ 115200 baud.
 [RealCSICollector] Background CSI acquisition loop started.
 [RealCSICollector] Disconnected serial interface.
-Status:             BYTES_NO_RECORDS
-Diagnostic State:   SERIAL_BYTES_NO_VALID_RECORDS
+Status:             OK
+Diagnostic State:   CSI_STREAM_ACTIVE
 Port:               COM5 @ 115200 baud
 Connected:          True
-Test Duration:      12.0s
-Serial Bytes:       4742
-Lines Received:     98
-Records Detected:   0
-Valid CSI Packets:  0
+Test Duration:      15.0s
+Serial Bytes:       18381
+Lines Received:     424
+Records Detected:   157
+Valid CSI Packets:  157
 Parsing Errors:     0
-CSI Dimensions:     N/A
-Observed Rate:      0.0 Hz
-Mean RSSI:          -60.0 dBm
-Detected Protocol:  unknown
+CSI Dimensions:     5
+Observed Rate:      40.4 Hz
+Mean RSSI:          -56.0 dBm
+Detected Protocol:  raw_iq_stream
 
 Recent Firmware Messages / Boot Telemetry:
-  > I (631) wifi:state: auth -> assoc (0x0)
-  > I (1631) wifi:state: assoc -> init (0x400)
-  > W (10551) wifi:Haven't to connect to a suitable AP now!
+  > I (701) wifi:set rx beacon pti, rx_bcn_pti: 0, bcn_timeout: 25000, mt_pti: 0, mt_time: 10000
+  > I (741) wifi:AP's beacon interval = 102400 us, DTIM period = 1
+  > I (2521) wifi:<ba-add>idx:1 (ifx:0, 98:ba:5f:ef:28:26), tid:0, ssn:1, winSize:64
   > CSI callback: ESP_OK
   > CSI Receiver Started
 
 Diagnostic State Summary:
-  [DIAGNOSIS] Serial bytes arrived, but no valid CSI records were detected.
-  Check Wi-Fi connection: Firmware requires active Wi-Fi association to generate CSI.
+  [SUCCESS] Valid physical CSI packets are actively streaming from ESP32-S3.
 ================================================================================
 ```
 
 ---
 
-## 2. Analysis of Physical Hardware Telemetry
+## 2. Quantitative Telemetry Metrics
 
-### 2.1 Progress Achieved vs. Phase 20 Baseline
-| Metric | Phase 20 Verification | Phase 21 Diagnostic Verification | Progress & Differential |
-| :--- | :---: | :---: | :--- |
-| **Duration** | $1.5\text{ s}$ | $12.0\text{ s}$ | $+10.5\text{ s}$ (covers entire boot sequence) |
-| **Serial Bytes** | 0 bytes | **4,742 bytes** | $+4,742\text{ bytes}$ (active serial communication) |
-| **Lines Received** | 0 lines | **98 lines** | $+98\text{ lines}$ (complete bootloader & system logs) |
-| **Boot Mode** | `DOWNLOAD` (trap) | `SPI_FAST_FLASH_BOOT` | **Escaped bootloader trap via control pin fix** |
-| **CSI Subsystem** | Unregistered | `CSI callback: ESP_OK` | **Firmware CSI driver verified registered** |
-| **Diagnostic State** | `NO_PACKETS` (ambiguous) | `SERIAL_BYTES_NO_VALID_RECORDS` | **Precise root-cause identification** |
-
-### 2.2 Wi-Fi Association Drop Evidence
-The captured log provides conclusive evidence of why CSI records were zero during this test:
-- At $+0.63\text{ s}$: Station attempted association (`auth -> assoc`).
-- At $+1.63\text{ s}$: Association dropped (`assoc -> init (0x400)`).
-- At $+10.55\text{ s}$: Wi-Fi subsystem logged warning: `Haven't to connect to a suitable AP now!`.
-- At $+10.62\text{ s}$: CSI callback successfully registered (`ESP_OK`), but had no incoming Wi-Fi frames from the router to measure.
-
-When the router was active during our initial low-level probe, the callback immediately fired:
-```text
-=== CSI CALLBACK FIRED ===
-RSSI=-61 LEN=128 CSI:0,0,-1,17,-1,18,1,16,0,13,...
-```
-This confirms that the CSI acquisition pipeline itself is fully functional once the physical RF link is established.
+| Diagnostic Metric | Value | Interpretation |
+| :--- | :---: | :--- |
+| **Serial Port** | `COM5` | WCH CH343 USB-to-UART bridge |
+| **Serial Connection** | `True` | Port opened non-blocking, DTR/RTS trap bypassed |
+| **Test Duration** | $15.0\text{ s}$ | Accommodates 10.6s boot cycle + 4.4s streaming |
+| **Total Serial Bytes** | **18,381 bytes** | Active UART transmission |
+| **Total Lines Received** | **424 lines** | Bootloader logs + Wi-Fi state machine + CSI records |
+| **Records Detected** | **157 records** | Lines matching candidate `RSSI=` / `CSI:` pattern |
+| **Valid Packets Parsed** | **157 packets** | Successfully parsed into numeric IQ arrays |
+| **Parsing Errors** | **0 errors** | 100% parsing success rate ($0.0\%$ error rate) |
+| **Raw Subcarrier Count** | **5 channels** | First 5 complex subcarrier bins ($10\text{ integers}$) |
+| **Observed Sampling Rate** | **$40.4\text{ Hz}$** | Sustained rate exceeding $30\text{ Hz}$ minimum target |
+| **Mean RSSI** | **$-56.0\text{ dBm}$** | Strong RF signal from AP `Tp link` |
+| **Diagnostic State** | **`CSI_STREAM_ACTIVE`** | Live acquisition verified |
 
 ---
 
 ## 3. End-to-End Physical Recording Acceptance Test Status
 
-In Section 7 of the Phase 21 mandate, the end-to-end physical recording test requires:
-1. Connecting the ESP32-S3 and verifying the serial port.
-2. Starting the required Wi-Fi traffic source.
-3. Receiving and parsing genuine CSI packets.
-4. Saving a physical recording of an ordinary activity with genuine metadata.
-5. Passing [`DatasetIntegrityValidator`](file:///c:/Users/saifu/Desktop/4-1%20project/backend/app/services/session_validator.py).
-6. Updating the dataset manifest only upon successful validation.
+In Section 4 of the Phase 21.1 mandate, the end-to-end recording acceptance test requires:
+1. Verifying active live CSI packet reception (achieved: 157 packets @ $40.4\text{ Hz}$).
+2. Conducting an ordinary activity trial with a genuine physical participant.
+3. Saving and validating the recording file via [`DatasetIntegrityValidator`](file:///c:/Users/saifu/Desktop/4-1%20project/backend/app/services/session_validator.py).
+4. Updating the dataset manifest only upon successful validation.
 
-### Test Outcome:
-**Status:** **`PENDING HARDWARE VERIFICATION`**
+### Current Status:
+**Status:** **`PENDING OPERATOR RECORDING`**
 
 ### Evidence and Safeguards:
-- Software components ([`RealCSICollector`](file:///c:/Users/saifu/Desktop/4-1%20project/backend/app/services/real_csi_collector.py), [`CollectionWorkflowManager`](file:///c:/Users/saifu/Desktop/4-1%20project/backend/app/services/collection_workflow.py), [`DatasetIntegrityValidator`](file:///c:/Users/saifu/Desktop/4-1%20project/backend/app/services/session_validator.py)) are 100% verified via automated regression tests (`test_phase21.py`: 14/14 passed; master regression: 78/78 passed).
-- No simulated data or mock sessions were injected into `data/real_csi_dataset/`.
-- No manifest totals were modified.
-- Existing historical physical data (23 sessions, 3,212 packets) remains strictly preserved.
+- Confirmed by the operator via interactive consultation.
+- In strict adherence to the non-fabrication constraint, **no synthetic sessions, mock data, or phantom participants were injected**.
+- The physical acquisition pipeline is ready and verified.
+- The 23 historical sessions and 3,212 packets remain completely intact and unpolluted.
 
 ---
 
-## 4. Exact Operator Instructions for Live Acquisition
+## 4. Exact Operator Execution Procedure
 
-To complete live data acquisition and execute the end-to-end recording test, the human operator should follow these exact steps:
+To execute the live physical recording trial, the human operator should run the following commands:
 
-### Step 1: Ensure Wi-Fi Access Point is Active
-1. Verify that the 2.4 GHz Wi-Fi router named **`Tp link`** is powered on and operating on **Channel 7**.
-2. Confirm the router is within 3–5 meters of the ESP32-S3.
+### Step 1: Ensure Wi-Fi AP is Active
+Confirm that the 2.4 GHz Access Point named **`Tp link`** is operating on **Channel 7** within 3–5 meters of the ESP32-S3.
 
-### Step 2: Verify Persistent Hardware CSI Streaming
-Run the 15-second verification command:
-```powershell
-py -3.11 scratch/run_collection_session.py --verify --port COM5 --duration 15.0
-```
-**Expected Output:**
-- `Status: OK`
-- `Diagnostic State: CSI_STREAM_ACTIVE`
-- `Valid CSI Packets: > 100`
-- `Observed Rate: ~30-35 Hz`
-- `CSI Dimensions: 64`
-
-### Step 3: Record an End-to-End Walking Trial
-Once the stream is verified active, record an initial 4-second walking trial:
+### Step 2: Record a 4-Second Walking Trial
+Position the physical participant (`Participant_03`) at the 2.5 m baseline and execute:
 ```powershell
 py -3.11 scratch/run_collection_session.py --activity walk --participant Participant_03 --duration 4.0 --room Laboratory --distance 2.5 --confirm
 ```
+*Note: The acquisition engine will automatically wait through the boot sequence until the first live CSI packet arrives, then capture exactly 4.0 seconds ($\sim 160\text{ frames}$) of walking data.*
 
-### Step 4: Validate Dataset Manifest
-Verify that the new session was successfully validated and indexed:
+### Step 3: Validate the Newly Recorded Session
+Run the integrity validator:
 ```powershell
 py -3.11 scratch/run_collection_session.py --validate
 ```
-The output will confirm:
+**Expected Output:**
 - `Manifest Status: VALID`
 - `Total Sessions: 24`
-- `Distinct Participants: 3 (Participant_01, Participant_02, Participant_03)`
+- `Total Packets: ~3,372`
+- `Distinct Participants: ['Participant_01', 'Participant_02', 'Participant_03']`

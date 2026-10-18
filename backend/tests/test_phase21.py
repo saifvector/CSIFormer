@@ -388,3 +388,61 @@ def test_phase21_checkpoint_hash_invariance():
 
     assert prod_hash == "383b4d98c08f8970b0443738f170ec01", f"Production checkpoint modified! Actual: {prod_hash}"
     assert exp_hash == "ab3d97a04d78edf75d807178772bc828", f"Experimental checkpoint modified! Actual: {exp_hash}"
+
+
+# =============================================================================
+# 15. Physical Hardware Format A (LEN=256, 5 Subcarriers) Parsing
+# =============================================================================
+def test_phase21_physical_5_subcarrier_stream_handling():
+    """Verify that physical firmware format (LEN=256, 10 integers = 5 subcarriers) parses correctly."""
+    collector = RealCSICollector(port="COM5", auto_connect=False)
+    collector.is_connected = True
+    collector.serial_handle = MagicMock()
+
+    line = "RSSI=-59 LEN=256 CSI:0,0,12,6,15,4,14,4,13,4,"
+    frame = collector.parse_raw_telemetry_line(line)
+
+    assert frame is not None
+    assert frame["rssi"] == -59.0
+    assert frame["num_subcarriers"] == 5
+    assert len(frame["raw_amplitudes"]) == 5
+    assert len(frame["raw_phases"]) == 5
+
+    collector._process_parsed_frame(frame)
+    assert collector.raw_csi_dimensions == 5
+    # Standardized window buffer should interpolate 5 subcarriers up to 56 HT20 channels
+    assert len(collector.raw_frame_buffer[-1]) == 56
+
+
+# =============================================================================
+# 16. Format B Bracketed and Semicolon Syntax Parsing
+# =============================================================================
+def test_phase21_bracketed_format_b_semicolon_parsing():
+    """Verify that historical and bracketed semicolon Format B parses correctly."""
+    collector = RealCSICollector(port="COM5", auto_connect=False)
+    line = "CSI_DATA,24:DC:C3:A1:01:01,-52.0,-95.0,102,3,[12.5:0.5;14.2:0.8;15.1:1.1]"
+    frame = collector.parse_raw_telemetry_line(line)
+
+    assert frame is not None
+    assert frame["mac"] == "24:DC:C3:A1:01:01"
+    assert frame["rssi"] == -52.0
+    assert frame["sequence"] == 102
+    assert frame["num_subcarriers"] == 3
+    assert len(frame["raw_amplitudes"]) == 3
+    assert frame["raw_amplitudes"][0] == 12.5
+
+
+# =============================================================================
+# 17. Format A Whitespace and Bracket Tolerance
+# =============================================================================
+def test_phase21_format_a_whitespace_and_bracket_tolerance():
+    """Verify that spaces, brackets, or trailing commas in Format A do not fail parsing."""
+    collector = RealCSICollector(port="COM5", auto_connect=False)
+    line = "RSSI=-60.5 LEN=128 CSI: [ 0, 0, -14, 12, -13, 10 ]"
+    frame = collector.parse_raw_telemetry_line(line)
+
+    assert frame is not None
+    assert frame["rssi"] == -60.5
+    assert frame["num_subcarriers"] == 3
+    assert len(frame["raw_amplitudes"]) == 3
+

@@ -23,6 +23,7 @@ import time
 import json
 import csv
 import math
+import re
 import threading
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Tuple, Union
@@ -303,20 +304,27 @@ class RealCSICollector:
         if not line:
             return None
 
-        # Format A: RSSI=-55 LEN=128 CSI:0,0,-17,-4,...
-        if "RSSI=" in line and "CSI:" in line:
+        # Format A: RSSI=-55 LEN=128 CSI:0,0,-17,-4,... or RSSI=-59 LEN=256 CSI:0,0,...
+        if "RSSI=" in line and ("CSI:" in line or "CSI=" in line):
             try:
                 self.detected_protocol = "raw_iq_stream"
-                parts = line.split()
-                rssi_part = next((p for p in parts if p.startswith("RSSI=")), "RSSI=-60")
-                len_part = next((p for p in parts if p.startswith("LEN=")), "LEN=128")
-                csi_part = next((p for p in parts if "CSI:" in p), "")
+                rssi_m = re.search(r"RSSI=([-+]?\d+(?:\.\d+)?)", line)
+                rssi = float(rssi_m.group(1)) if rssi_m else -60.0
 
-                rssi = float(rssi_part.split("=")[1])
-                payload_len = int(len_part.split("=")[1])
-                iq_str = csi_part.split("CSI:")[1].strip(",")
+                len_m = re.search(r"LEN=(\d+)", line)
+                payload_len = int(len_m.group(1)) if len_m else 128
 
-                nums = [int(v) for v in iq_str.split(",") if v.strip()]
+                csi_idx = line.find("CSI:")
+                if csi_idx == -1:
+                    csi_idx = line.find("CSI=")
+                if csi_idx == -1:
+                    return None
+
+                iq_str = line[csi_idx + 4:].strip().strip("[]").strip()
+                nums = [int(v) for v in re.findall(r"[-+]?\d+", iq_str)]
+                if len(nums) < 2:
+                    return None
+
                 # IQ interleaved pairs
                 amps = []
                 phases = []
@@ -343,8 +351,9 @@ class RealCSICollector:
         if line.startswith("CSI_DATA"):
             try:
                 self.detected_protocol = "structured_csi_data"
-                tokens = line.split(",")
-                if len(tokens) < 7:
+                content = line.strip()
+                tokens = content.split(",")
+                if len(tokens) < 6:
                     return None
 
                 mac = tokens[1]
@@ -353,13 +362,19 @@ class RealCSICollector:
                 seq = int(tokens[4])
                 num_sc = int(tokens[5])
 
+                remainder = ",".join(tokens[6:]).replace("[", "").replace("]", "")
+                subcarrier_tokens = [t.strip() for t in re.split(r"[,;]", remainder) if t.strip()]
+
                 amps = []
                 phases = []
-                for pair in tokens[6:]:
+                for pair in subcarrier_tokens:
                     if ":" in pair:
-                        a, p = pair.split(":")
+                        a, p = pair.split(":", 1)
                         amps.append(float(a))
                         phases.append(float(p))
+
+                if len(amps) == 0:
+                    return None
 
                 return {
                     "timestamp": time.time(),
