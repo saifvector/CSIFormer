@@ -89,6 +89,18 @@ class RealCSICollector:
         self.jitter_ms: float = 0.0
         self.detected_protocol: str = "unknown"
 
+        # Diagnostic State Machine & Telemetry (Phase 21)
+        self.diagnostic_state: str = "SERIAL_DISCONNECTED"
+        self.total_bytes_received: int = 0
+        self.total_lines_received: int = 0
+        self.total_records_detected: int = 0
+        self.csi_packets_parsed: int = 0
+        self.parse_errors: int = 0
+        self.boot_messages: List[str] = []
+        self.last_valid_packet_time: Optional[float] = None
+        self.raw_csi_dimensions: Optional[int] = None
+        self.termination_reason: Optional[str] = None
+
         # Recording Session Metadata
         self.is_recording = False
         self.current_session_id: Optional[str] = None
@@ -129,6 +141,8 @@ class RealCSICollector:
         """Establishes non-blocking connection to the ESP32-S3 serial interface."""
         if not HAS_PYSERIAL:
             print("[RealCSICollector] Warning: pyserial is not installed.")
+            self.diagnostic_state = "SERIAL_DISCONNECTED"
+            self.termination_reason = "pyserial_not_installed"
             return False
 
         target_port = port or self.port or self.discover_esp32_port()
@@ -136,6 +150,8 @@ class RealCSICollector:
 
         if not target_port:
             print("[RealCSICollector] No ESP32-S3 serial port detected.")
+            self.diagnostic_state = "SERIAL_DISCONNECTED"
+            self.termination_reason = "no_port_detected"
             return False
 
         try:
@@ -148,25 +164,56 @@ class RealCSICollector:
                 timeout=1.0,
                 write_timeout=1.0
             )
+
+            # Prevent DTR/RTS auto-reset into bootloader (CH343/ESP32-S3 auto-download trap)
+            try:
+                self.serial_handle.dtr = False
+                self.serial_handle.rts = False
+            except Exception:
+                pass
+
             self.port = target_port
             self.baud_rate = target_baud
             self.is_connected = True
+            self.diagnostic_state = "SERIAL_CONNECTED_IDLE"
+            self.termination_reason = None
             print(f"[RealCSICollector] Successfully connected to {self.port} @ {self.baud_rate} baud.")
             return True
         except Exception as e:
             print(f"[RealCSICollector] Connection failed on {target_port}: {e}")
             self.is_connected = False
+            self.diagnostic_state = "SERIAL_DISCONNECTED"
+            self.termination_reason = f"connection_failed: {e}"
+            return False
+
+    def trigger_normal_reset(self) -> bool:
+        """
+        Pulses RTS (EN) low while keeping DTR (GPIO0) high (inactive)
+        to trigger a clean SPI fast flash boot on ESP32-S3, escaping ROM download mode.
+        """
+        if not self.serial_handle or not getattr(self.serial_handle, "is_open", False):
+            return False
+        try:
+            self.serial_handle.dtr = False
+            self.serial_handle.rts = True
+            time.sleep(0.05)
+            self.serial_handle.rts = False
+            time.sleep(0.1)
+            return True
+        except Exception as e:
+            print(f"[RealCSICollector] Reset pulse error: {e}")
             return False
 
     def disconnect(self):
         """Safely stops streaming and closes the serial port."""
         self.stop_streaming()
-        if self.serial_handle and self.serial_handle.is_open:
+        if self.serial_handle and getattr(self.serial_handle, "is_open", False):
             try:
                 self.serial_handle.close()
             except Exception:
                 pass
         self.is_connected = False
+        self.diagnostic_state = "SERIAL_DISCONNECTED"
         print("[RealCSICollector] Disconnected serial interface.")
 
     def start_streaming(self):
@@ -198,14 +245,16 @@ class RealCSICollector:
         line_buffer = ""
         while not self._stop_event.is_set():
             try:
-                if not self.serial_handle or not self.serial_handle.is_open:
-                    time.sleep(0.5)
+                if not self.serial_handle or not getattr(self.serial_handle, "is_open", False):
+                    time.sleep(0.2)
                     continue
 
-                raw_bytes = self.serial_handle.read(self.serial_handle.in_waiting or 1)
+                in_w = getattr(self.serial_handle, "in_waiting", 0) or 1
+                raw_bytes = self.serial_handle.read(in_w)
                 if not raw_bytes:
                     continue
 
+                self.total_bytes_received += len(raw_bytes)
                 text = raw_bytes.decode("ascii", errors="ignore")
                 line_buffer += text
 
@@ -213,13 +262,35 @@ class RealCSICollector:
                     line, line_buffer = line_buffer.split("\n", 1)
                     line = line.strip()
                     if line:
-                        parsed = self.parse_raw_telemetry_line(line)
-                        if parsed:
-                            self._process_parsed_frame(parsed)
+                        self.total_lines_received += 1
+                        # Capture boot messages or diagnostic logs
+                        if any(kw in line for kw in ["rst:", "boot:", "configsip:", "clk_drv:", "spi_fast_flash", "wifi:", "CSI callback", "CSI Receiver", "Haven't to connect", "connecting to", "MAC", "channel"]):
+                            if len(self.boot_messages) < 100:
+                                self.boot_messages.append(line)
+
+                        is_candidate = ("RSSI=" in line and "CSI:" in line) or line.startswith("CSI_DATA")
+                        if is_candidate:
+                            self.total_records_detected += 1
+                            parsed = self.parse_raw_telemetry_line(line)
+                            if parsed:
+                                raw_amps = parsed.get("raw_amplitudes", [])
+                                if len(raw_amps) > 0:
+                                    self._process_parsed_frame(parsed)
+                                else:
+                                    self.parse_errors += 1
+                            else:
+                                self.parse_errors += 1
+                                if self.csi_packets_parsed == 0:
+                                    self.diagnostic_state = "RECORDS_RECEIVED_PARSE_FAILED"
+                        else:
+                            if self.csi_packets_parsed == 0 and self.total_records_detected == 0:
+                                self.diagnostic_state = "SERIAL_BYTES_NO_VALID_RECORDS"
 
             except (serial.SerialException, OSError) as e:
                 print(f"[RealCSICollector] Serial stream error: {e}. Attempting auto-reconnect...")
                 self.is_connected = False
+                self.diagnostic_state = "SERIAL_DISCONNECTED"
+                self.termination_reason = f"serial_error: {e}"
                 time.sleep(1.0)
                 self.connect()
 
@@ -310,9 +381,12 @@ class RealCSICollector:
         now = frame["timestamp"]
         dt = max(0.001, now - self.last_packet_time)
         self.last_packet_time = now
+        self.last_valid_packet_time = now
 
         # Update metrics
         self.packets_received += 1
+        self.csi_packets_parsed += 1
+        self.diagnostic_state = "CSI_STREAM_ACTIVE"
         self.current_rssi = frame["rssi"]
         self.current_noise = frame["noise_floor"]
         self.packet_rate_hz = round(0.9 * self.packet_rate_hz + 0.1 * (1.0 / dt), 1)
@@ -331,6 +405,8 @@ class RealCSICollector:
 
         if len(raw_amps) == 0:
             return
+
+        self.raw_csi_dimensions = len(raw_amps)
 
         if len(raw_amps) != self.TARGET_SUBCARRIERS:
             # Resample or interpolate to exactly 56 subcarriers
@@ -376,17 +452,51 @@ class RealCSICollector:
             phase_win = np.stack(list(self.phase_frame_buffer), axis=0)
             return raw_win, phase_win
 
+    def get_diagnostic_state(self) -> str:
+        """Computes current real-time diagnostic state based on hardware and packet stream telemetry."""
+        if not self.is_connected or not self.serial_handle:
+            self.diagnostic_state = "SERIAL_DISCONNECTED"
+            return self.diagnostic_state
+
+        is_open = getattr(self.serial_handle, "is_open", False)
+        if not is_open:
+            self.diagnostic_state = "SERIAL_DISCONNECTED"
+            return self.diagnostic_state
+
+        now = time.time()
+        if self.csi_packets_parsed > 0:
+            if self.last_valid_packet_time and (now - self.last_valid_packet_time > 2.0):
+                self.diagnostic_state = "STREAM_INTERRUPTED"
+            else:
+                self.diagnostic_state = "CSI_STREAM_ACTIVE"
+        elif self.parse_errors > 0 or (self.total_records_detected > 0 and self.csi_packets_parsed == 0):
+            self.diagnostic_state = "RECORDS_RECEIVED_PARSE_FAILED"
+        elif self.total_bytes_received > 0 or self.total_lines_received > 0:
+            self.diagnostic_state = "SERIAL_BYTES_NO_VALID_RECORDS"
+        else:
+            self.diagnostic_state = "SERIAL_CONNECTED_IDLE"
+
+        return self.diagnostic_state
+
     def get_stream_health(self) -> Dict[str, Any]:
         """Returns comprehensive real-time streaming health telemetry."""
         total = self.packets_received + self.packets_lost
         loss_pct = round((self.packets_lost / total * 100), 2) if total > 0 else 0.0
+        state = self.get_diagnostic_state()
 
         return {
             "is_connected": self.is_connected,
             "is_streaming": self.is_streaming,
+            "diagnostic_state": state,
             "port": self.port or "DISCONNECTED",
             "baud_rate": self.baud_rate,
             "detected_protocol": self.detected_protocol,
+            "total_bytes_received": self.total_bytes_received,
+            "total_lines_received": self.total_lines_received,
+            "total_records_detected": self.total_records_detected,
+            "csi_packets_parsed": self.csi_packets_parsed,
+            "parse_errors": self.parse_errors,
+            "raw_csi_dimensions": self.raw_csi_dimensions,
             "packets_received": self.packets_received,
             "packets_lost": self.packets_lost,
             "packet_loss_pct": loss_pct,
@@ -395,7 +505,10 @@ class RealCSICollector:
             "noise_floor_dbm": self.current_noise,
             "snr_db": round(self.current_rssi - self.current_noise, 1),
             "buffer_fill_pct": round(len(self.raw_frame_buffer) / self.WINDOW_SIZE * 100, 1),
-            "window_ready": len(self.raw_frame_buffer) >= self.WINDOW_SIZE
+            "window_ready": len(self.raw_frame_buffer) >= self.WINDOW_SIZE,
+            "last_valid_packet_time": self.last_valid_packet_time,
+            "boot_messages": self.boot_messages[-10:],
+            "termination_reason": self.termination_reason
         }
 
     def parse_raw_line(self, line: str) -> Optional[Dict[str, Any]]:

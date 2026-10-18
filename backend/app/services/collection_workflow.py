@@ -85,14 +85,36 @@ class CollectionWorkflowManager:
         self.stimulator = UdpStimulator()
         self.active_session_info: Optional[Dict[str, Any]] = None
 
-    def verify_hardware_stream(self, test_duration_s: float = 1.5) -> Dict[str, Any]:
-        """Tests the serial connection and checks if physical CSI packets are streaming."""
+    def verify_hardware_stream(self, test_duration_s: float = 12.0, trigger_reset: bool = True) -> Dict[str, Any]:
+        """
+        Tests the serial connection and checks if physical CSI packets are streaming.
+        Differentiates between:
+        1. Port unavailable (SERIAL_DISCONNECTED)
+        2. Port opened but no serial bytes received (SERIAL_CONNECTED_IDLE)
+        3. Bytes received but no complete records detected (SERIAL_BYTES_NO_VALID_RECORDS)
+        4. Records detected but parsing fails (RECORDS_RECEIVED_PARSE_FAILED)
+        5. Valid records parsed but no valid CSI arrays found (RECORDS_RECEIVED_PARSE_FAILED)
+        6. Valid CSI packets received (CSI_STREAM_ACTIVE or STREAM_INTERRUPTED)
+        """
         if not self.collector.connect():
             return {
                 "status": "error",
                 "connected": False,
-                "message": f"Could not open serial port {self.port} at {self.baud_rate} baud."
+                "port": self.port,
+                "diagnostic_state": "SERIAL_DISCONNECTED",
+                "message": f"Could not open serial port {self.port} at {self.baud_rate} baud.",
+                "duration_s": test_duration_s,
+                "total_bytes_received": 0,
+                "total_records_detected": 0,
+                "packets_received_during_test": 0,
+                "packet_rate_hz": 0.0,
+                "mean_rssi": -99.0,
+                "raw_csi_dimensions": None
             }
+
+        # Optionally pulse normal reset so ESP32-S3 boots into flash if trapped in bootloader
+        if trigger_reset:
+            self.collector.trigger_normal_reset()
 
         self.collector.start_streaming()
         self.stimulator.start()
@@ -101,16 +123,44 @@ class CollectionWorkflowManager:
 
         health = self.collector.get_stream_health()
         pkts = self.collector.packets_received
+        total_bytes = health.get("total_bytes_received", 0)
+        total_records = health.get("total_records_detected", 0)
+        parse_errors = health.get("parse_errors", 0)
+        diagnostic_state = health.get("diagnostic_state", "SERIAL_DISCONNECTED")
+        raw_dim = health.get("raw_csi_dimensions")
+
         self.collector.stop_streaming()
         self.collector.disconnect()
 
+        # Determine granular status while preserving backward-compatibility
+        if pkts > 0:
+            status = "ok"
+        elif total_records > 0 and parse_errors > 0:
+            status = "records_parse_failed"
+        elif total_records > 0 and (raw_dim is None or raw_dim == 0):
+            status = "no_valid_csi_arrays"
+        elif total_bytes > 0:
+            status = "bytes_no_records"
+        else:
+            status = "no_packets"
+
         return {
-            "status": "ok" if pkts > 0 else "no_packets",
+            "status": status,
             "connected": True,
             "port": self.port,
+            "baud_rate": self.baud_rate,
+            "duration_s": test_duration_s,
+            "diagnostic_state": diagnostic_state,
+            "total_bytes_received": total_bytes,
+            "total_lines_received": health.get("total_lines_received", 0),
+            "total_records_detected": total_records,
             "packets_received_during_test": pkts,
+            "parse_errors": parse_errors,
+            "raw_csi_dimensions": raw_dim,
             "packet_rate_hz": health.get("packet_rate_hz", 0.0),
-            "mean_rssi": health.get("current_rssi", -99.0)
+            "mean_rssi": health.get("rssi_dbm", -99.0),
+            "detected_protocol": health.get("detected_protocol", "unknown"),
+            "boot_messages": health.get("boot_messages", [])
         }
 
     def start_session(

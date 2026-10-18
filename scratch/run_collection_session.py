@@ -71,16 +71,49 @@ def main():
     manager = CollectionWorkflowManager(port=args.port)
 
     if args.verify:
+        verify_dur = args.duration if args.duration != 4.0 else 12.0
         print("=" * 80)
-        print("HARDWARE VERIFICATION CHECK")
+        print("PHASE 21 — HARDWARE VERIFICATION & DIAGNOSTIC CHECK")
         print("=" * 80)
-        res = manager.verify_hardware_stream()
+        print(f"Testing port {args.port} for {verify_dur:.1f}s...")
+        res = manager.verify_hardware_stream(test_duration_s=verify_dur)
         print(f"Status:             {res['status'].upper()}")
-        print(f"Port:               {res['port']}")
+        print(f"Diagnostic State:   {res.get('diagnostic_state', 'UNKNOWN')}")
+        print(f"Port:               {res['port']} @ {res.get('baud_rate', 115200)} baud")
         print(f"Connected:          {res['connected']}")
-        print(f"Packets in 1.5s:    {res.get('packets_received_during_test', 0)}")
-        print(f"Sampling Rate:      {res.get('packet_rate_hz', 0.0):.1f} Hz")
+        print(f"Test Duration:      {res.get('duration_s', verify_dur):.1f}s")
+        print(f"Serial Bytes:       {res.get('total_bytes_received', 0)}")
+        print(f"Lines Received:     {res.get('total_lines_received', 0)}")
+        print(f"Records Detected:   {res.get('total_records_detected', 0)}")
+        print(f"Valid CSI Packets:  {res.get('packets_received_during_test', 0)}")
+        print(f"Parsing Errors:     {res.get('parse_errors', 0)}")
+        print(f"CSI Dimensions:     {res.get('raw_csi_dimensions') or 'N/A'}")
+        print(f"Observed Rate:      {res.get('packet_rate_hz', 0.0):.1f} Hz")
         print(f"Mean RSSI:          {res.get('mean_rssi', -99.0):.1f} dBm")
+        print(f"Detected Protocol:  {res.get('detected_protocol', 'unknown')}")
+
+        boot_msgs = res.get("boot_messages", [])
+        if boot_msgs:
+            print("\nRecent Firmware Messages / Boot Telemetry:")
+            for bm in boot_msgs[-5:]:
+                print(f"  > {bm}")
+
+        print("\nDiagnostic State Summary:")
+        state = res.get('diagnostic_state')
+        if state == "CSI_STREAM_ACTIVE":
+            print("  [SUCCESS] Valid physical CSI packets are actively streaming from ESP32-S3.")
+        elif state == "STREAM_INTERRUPTED":
+            print("  [WARNING] Packets were received but stream stalled (>2.0s without frame).")
+        elif state == "SERIAL_BYTES_NO_VALID_RECORDS":
+            print("  [DIAGNOSIS] Serial bytes arrived, but no valid CSI records were detected.")
+            print("  Check Wi-Fi connection: Firmware requires active Wi-Fi association to generate CSI.")
+        elif state == "RECORDS_RECEIVED_PARSE_FAILED":
+            print("  [DIAGNOSIS] Candidate CSI lines were detected, but parsing failed.")
+        elif state == "SERIAL_CONNECTED_IDLE":
+            print("  [DIAGNOSIS] Port opened, but zero serial bytes were received.")
+            print("  The ESP32-S3 may be held in ROM download mode or unpowered.")
+        elif state == "SERIAL_DISCONNECTED":
+            print(f"  [ERROR] Could not open port {args.port}. Check device manager and permissions.")
         print("=" * 80)
         return
 
