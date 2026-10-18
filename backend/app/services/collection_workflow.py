@@ -77,10 +77,11 @@ class UdpStimulator:
 class CollectionWorkflowManager:
     """Manages the full lifecycle of a CSI recording session."""
 
-    def __init__(self, port: str = "COM5", baud_rate: int = 115200):
+    def __init__(self, port: str = "COM5", baud_rate: int = 115200, data_dir: Optional[Path] = None):
         self.port = port
         self.baud_rate = baud_rate
-        self.collector = RealCSICollector(port=port, baud_rate=baud_rate, data_dir=str(DATASET_DIR))
+        self.data_dir = Path(data_dir) if data_dir else DATASET_DIR
+        self.collector = RealCSICollector(port=port, baud_rate=baud_rate, data_dir=str(self.data_dir))
         self.stimulator = UdpStimulator()
         self.active_session_info: Optional[Dict[str, Any]] = None
 
@@ -118,8 +119,11 @@ class CollectionWorkflowManager:
         activity_label: str,
         room_type: str = "Laboratory",
         tx_rx_distance_m: float = 2.5,
+        tx_position: str = "Tx_Baseline_Origin",
+        rx_position: str = "Rx_Baseline_Node",
         orientation: str = "LOS_Facing_TxRx",
         duration_seconds: float = 4.0,
+        event_id: Optional[str] = None,
         notes: str = ""
     ) -> Dict[str, Any]:
         """Validates parameters, connects hardware, and starts recording."""
@@ -137,7 +141,9 @@ class CollectionWorkflowManager:
 
         clean_label = activity_label.lower()
         clean_pid = participant_id.replace(" ", "_")
-        session_name = f"real_{clean_label}_{clean_pid}_{int(time.time())}"
+        now_ts = int(time.time())
+        session_name = f"real_{clean_label}_{clean_pid}_{now_ts}"
+        evt_id = event_id or f"evt_{clean_label}_{clean_pid}_{now_ts}"
 
         rec_res = self.collector.start_session_recording(
             session_name=session_name,
@@ -152,12 +158,15 @@ class CollectionWorkflowManager:
 
         self.active_session_info = {
             "session_id": rec_res["session_id"],
+            "event_id": evt_id,
             "participant_id": clean_pid,
             "activity_label": clean_label,
             "class_id": VALID_LABELS[clean_label]["class_id"],
             "duration_seconds": duration_seconds,
             "room_type": room_type,
             "tx_rx_distance_m": tx_rx_distance_m,
+            "tx_position": tx_position,
+            "rx_position": rx_position,
             "orientation": orientation,
             "notes": notes,
             "start_time": time.time()
@@ -166,6 +175,7 @@ class CollectionWorkflowManager:
         return {
             "status": "recording_active",
             "session_id": rec_res["session_id"],
+            "event_id": evt_id,
             "participant": clean_pid,
             "activity": clean_label,
             "target_duration_s": duration_seconds
@@ -188,6 +198,7 @@ class CollectionWorkflowManager:
         return {
             "status": "recording_stopped",
             "session_id": self.active_session_info["session_id"],
+            "event_id": self.active_session_info.get("event_id"),
             "frame_count": res.get("frame_count", 0),
             "json_path": res.get("json_path"),
             "csv_path": res.get("csv_path")
@@ -197,7 +208,7 @@ class CollectionWorkflowManager:
         """
         Confirms or rejects the recorded session.
         If confirmed: registers the session in data/real_csi_dataset/dataset_manifest.json.
-        If rejected: updates activity to 'unknown'.
+        If rejected: updates activity to 'unknown' (class_id -1).
         """
         if not self.active_session_info:
             return {"status": "no_session_to_finalize"}
@@ -211,9 +222,15 @@ class CollectionWorkflowManager:
 
         actual_activity = self.active_session_info["activity_label"] if confirmed else "unknown"
         actual_cid = VALID_LABELS[actual_activity]["class_id"]
+        confirmation_status = "confirmed" if confirmed else "rejected"
 
+        data["metadata"]["event_id"] = self.active_session_info.get("event_id")
         data["metadata"]["ground_truth_confirmed"] = confirmed
+        data["metadata"]["confirmation_status"] = confirmation_status
         data["metadata"]["ground_truth_activity"] = actual_activity
+        data["metadata"]["tx_position"] = self.active_session_info.get("tx_position", "Tx_Baseline_Origin")
+        data["metadata"]["rx_position"] = self.active_session_info.get("rx_position", "Rx_Baseline_Node")
+        data["metadata"]["subcarrier_alignment_method"] = "linear_interpolation_to_56"
         if notes:
             data["metadata"]["notes"] = f"{data['metadata'].get('notes', '')} | {notes}".strip(" | ")
 
@@ -221,7 +238,7 @@ class CollectionWorkflowManager:
             json.dump(data, f, indent=2)
 
         # Update dataset_manifest.json
-        manifest_path = DATASET_DIR / "dataset_manifest.json"
+        manifest_path = self.data_dir / "dataset_manifest.json"
         if manifest_path.exists():
             with open(manifest_path, "r", encoding="utf-8") as f:
                 manifest = json.load(f)
@@ -238,13 +255,17 @@ class CollectionWorkflowManager:
         if sid not in existing_sids:
             manifest["sessions"].append({
                 "session_id": sid,
+                "event_id": self.active_session_info.get("event_id"),
                 "activity_label": actual_activity,
                 "class_id": actual_cid,
                 "description": VALID_LABELS[actual_activity]["name"],
+                "confirmation_status": confirmation_status,
                 "participant_id": self.active_session_info["participant_id"],
                 "split": split,
                 "room": self.active_session_info["room_type"],
                 "tx_rx_distance_m": self.active_session_info["tx_rx_distance_m"],
+                "tx_position": self.active_session_info.get("tx_position", "Tx_Baseline_Origin"),
+                "rx_position": self.active_session_info.get("rx_position", "Rx_Baseline_Node"),
                 "orientation": self.active_session_info["orientation"],
                 "carrier_frequency_ghz": 2.442,
                 "wifi_channel": 7,
@@ -253,6 +274,7 @@ class CollectionWorkflowManager:
                 "packet_count": self.active_session_info["frame_count"],
                 "sampling_rate_hz": data["metadata"].get("mean_sampling_rate_hz", 35.0),
                 "mean_rssi_dbm": -58.0,
+                "subcarrier_alignment_method": "linear_interpolation_to_56",
                 "json_file": json_path.name,
                 "csv_file": f"{sid}.csv"
             })
@@ -272,6 +294,7 @@ class CollectionWorkflowManager:
         return {
             "status": "session_finalized",
             "session_id": sid,
+            "event_id": self.active_session_info.get("event_id"),
             "confirmed": confirmed,
             "activity_label": actual_activity,
             "class_id": actual_cid,

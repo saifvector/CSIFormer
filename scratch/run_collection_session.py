@@ -1,5 +1,13 @@
 """
-CSIFormer Phase 17 — Interactive/Automated CSI Collection Session CLI.
+CSIFormer Phase 18 — Interactive/Automated Physical CSI Collection Session CLI.
+
+Standardized tool for operator-guided real-hardware data collection:
+- Hardware link check and UDP stimulator verification.
+- Enforces pseudonymized participant IDs (e.g. Participant_03).
+- Event-level tracking with unique event_id to prevent window/event split leakage.
+- Precise Tx/Rx geometric positioning.
+- Post-trial ground-truth confirmation or rejection gate.
+- Strict padded-mat fall safety warnings.
 
 Usage Examples:
   # 1. Verify hardware connection and active CSI packet stream:
@@ -8,8 +16,8 @@ Usage Examples:
   # 2. Record a 4-second walking trial:
   py -3.11 scratch/run_collection_session.py --activity walk --participant Participant_03 --duration 4.0 --confirm
 
-  # 3. Record a safe, supervised fall trial:
-  py -3.11 scratch/run_collection_session.py --activity fall --participant Participant_03 --duration 4.0 --confirm --notes "Padded landing mat forward drop"
+  # 3. Record a safe, supervised fall trial on a certified 4-inch mat:
+  py -3.11 scratch/run_collection_session.py --activity fall --participant Participant_03 --duration 4.0 --confirm --notes "Certified 4-inch mat forward breakfall"
 """
 
 import sys
@@ -24,7 +32,7 @@ sys.path.append(str(BASE_DIR / "backend"))
 from app.services.collection_workflow import CollectionWorkflowManager, VALID_LABELS
 
 def main():
-    parser = argparse.ArgumentParser(description="CSIFormer Phase 17 Standardized Real-Data Collection")
+    parser = argparse.ArgumentParser(description="CSIFormer Phase 18 Standardized Real-Data Collection")
     parser.add_argument("--port", default="COM5", help="Serial port of ESP32-S3 (default COM5)")
     parser.add_argument("--verify", action="store_true", help="Verify hardware connection and stream only")
     parser.add_argument("--activity", choices=list(VALID_LABELS.keys()), default="walk", help="Activity label")
@@ -32,7 +40,10 @@ def main():
     parser.add_argument("--duration", type=float, default=4.0, help="Duration in seconds (default 4.0)")
     parser.add_argument("--room", default="Laboratory", help="Room name or type")
     parser.add_argument("--distance", type=float, default=2.5, help="Tx-Rx distance in meters")
+    parser.add_argument("--tx-pos", default="Tx_Baseline_Origin", help="Transmitter physical position / coordinates")
+    parser.add_argument("--rx-pos", default="Rx_Baseline_Node", help="Receiver physical position / coordinates")
     parser.add_argument("--orientation", default="LOS_Facing_TxRx", help="Orientation relative to Tx-Rx baseline")
+    parser.add_argument("--event", default=None, help="Explicit event ID (default auto-generated)")
     parser.add_argument("--split", choices=["train", "val", "test"], default="train", help="Target split")
     parser.add_argument("--confirm", action="store_true", help="Confirm ground truth activity immediately")
     parser.add_argument("--notes", default="", help="Observational notes (e.g. mat setup)")
@@ -56,15 +67,24 @@ def main():
         return
 
     print("=" * 80)
-    print("PHASE 17 — PHYSICAL CSI COLLECTION SESSION")
+    print("PHASE 18 — PHYSICAL CSI COLLECTION SESSION")
     print("=" * 80)
     print(f"Activity:       {args.activity.upper()} ({VALID_LABELS[args.activity]['name']})")
     print(f"Participant:    {args.participant}")
     print(f"Duration:       {args.duration:.1f} seconds")
     print(f"Room / Setup:   {args.room} | Distance: {args.distance}m | Orientation: {args.orientation}")
+    print(f"Positions:      Tx: {args.tx_pos} | Rx: {args.rx_pos}")
+    if args.event:
+        print(f"Event ID:       {args.event}")
+
     if args.activity == "fall":
-        print("\n[SAFETY MANDATE] Ensure a minimum 4-inch padded gym mat is in place.")
-        print("[SAFETY MANDATE] A spotter must be present. Never fall onto hard floors.\n")
+        print("\n" + "!" * 80)
+        print("[MANDATORY SAFETY PROTOCOL]")
+        print("1. Ensure a certified minimum 4-inch (10 cm) shock-absorbing crash mat is in place.")
+        print("2. A competent spotter must be present. Never fall onto unpadded floors.")
+        print("3. Participant must execute controlled breakfall descent. Avoid head/neck impacts.")
+        print("4. If safety equipment or supervision is unavailable, POSTPONE the trial.")
+        print("!" * 80 + "\n")
 
     print("Starting session in 1.0s...")
     time.sleep(1.0)
@@ -75,11 +95,15 @@ def main():
             activity_label=args.activity,
             room_type=args.room,
             tx_rx_distance_m=args.distance,
+            tx_position=args.tx_pos,
+            rx_position=args.rx_pos,
             orientation=args.orientation,
             duration_seconds=args.duration,
+            event_id=args.event,
             notes=args.notes
         )
         print(f"Recording Active: Session ID = {rec_start['session_id']}")
+        print(f"                  Event ID   = {rec_start['event_id']}")
 
         # Wait for duration
         t0 = time.time()
@@ -102,6 +126,7 @@ def main():
 
     fin_res = manager.finalize_and_index_session(confirmed=confirmed, split=args.split, notes=args.notes)
     print(f"Session Finalized. Activity: {fin_res['activity_label']} | Manifest Updated: {fin_res['manifest_updated']}")
+    print(f"Confirmation Status: {fin_res.get('confirmed')}")
     print("=" * 80)
 
 if __name__ == "__main__":
