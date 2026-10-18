@@ -179,12 +179,13 @@ class LivePipelineService:
         if self.collector is None:
             return {"status": "error", "error": "Collector not initialized"}
 
-        raw_win, _ = self.collector.get_latest_window()
-        if raw_win is None:
+        latest = self.collector.get_latest_window()
+        if latest is None:
             return {
                 "status": "buffering",
                 "message": f"Collecting frames ({len(self.collector.raw_frame_buffer)}/50). Please wait."
             }
+        raw_win, _ = latest
 
         # Validate
         if raw_win.shape != (50, 56) or not np.isfinite(raw_win).all():

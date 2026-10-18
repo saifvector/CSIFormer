@@ -1,0 +1,128 @@
+{
+  "model_evaluated": "models/csiformer_phase13_best.pth",
+  "dataset": "data/real_csi_dataset",
+  "total_windows": 49,
+  "overall_metrics": {
+    "accuracy": 0.1429,
+    "fall_recall": 0.0,
+    "macro_f1": 0.0643,
+    "weighted_f1": 0.0656,
+    "mean_raw_gate": 0.5,
+    "mean_dopp_gate": 0.5
+  },
+  "per_class_metrics": {
+    "Push&Pull": {
+      "precision": 0.1429,
+      "recall": 0.1111,
+      "f1_score": 0.125,
+      "support": 9
+    },
+    "Clap": {
+      "precision": 0.1579,
+      "recall": 0.75,
+      "f1_score": 0.2609,
+      "support": 8
+    },
+    "Static/Box": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1_score": 0.0,
+      "support": 5
+    },
+    "Sit/Clean": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1_score": 0.0,
+      "support": 10
+    },
+    "FALL": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1_score": 0.0,
+      "support": 8
+    },
+    "Walk": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1_score": 0.0,
+      "support": 9
+    }
+  },
+  "split_performance": {
+    "train": {
+      "accuracy": 0.0769,
+      "fall_recall": 0.0,
+      "total_windows": 26
+    },
+    "val": {
+      "accuracy": 0.1667,
+      "fall_recall": 0.0,
+      "total_windows": 12
+    },
+    "test": {
+      "accuracy": 0.2727,
+      "fall_recall": 0.0,
+      "total_windows": 11
+    }
+  },
+  "confusion_matrix": {
+    "classes": [
+      "Push&Pull",
+      "Clap",
+      "Static/Box",
+      "Sit/Clean",
+      "FALL",
+      "Walk"
+    ],
+    "matrix": [
+      [
+        1,
+        8,
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        2,
+        6,
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        1,
+        4,
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        1,
+        6,
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        8,
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        2,
+        6,
+        0,
+        0,
+        0,
+        0
+      ]
+    ]
+  }
+}

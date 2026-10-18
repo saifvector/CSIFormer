@@ -1,0 +1,27 @@
+{
+  "hardware_telemetry": {
+    "mean_dt_ms": 28.11,
+    "std_dt_ms": 11.64,
+    "effective_sampling_rate_hz": 35.58,
+    "jitter_percent": 41.4,
+    "mean_rssi_dbm": -58.32,
+    "total_packets_analyzed": 3189
+  },
+  "physics_parameters": {
+    "carrier_frequency_esp_ghz": 2.442,
+    "carrier_frequency_widar_ghz": 5.825,
+    "wavelength_esp_m": 0.1229,
+    "wavelength_widar_m": 0.0515,
+    "doppler_scale_ratio": 2.385,
+    "nyquist_limit_esp_hz": 17.79,
+    "max_unaliased_velocity_esp_ms": 1.09,
+    "nyquist_limit_widar_hz": 500.0,
+    "max_unaliased_velocity_widar_ms": 12.88
+  },
+  "domain_discrepancy_verdicts": {
+    "doppler_compression": "ESP32-S3 Doppler frequencies are 2.39x smaller than Widar training data",
+    "aliasing_risk": "Velocities above 1.09 m/s alias into lower frequency bins on ESP32-S3",
+    "spatial_subcarriers": "Running firmware outputs 5 subcarrier tones linearly interpolated to 56 tones",
+    "representation_compatibility": "Direct feed into unmodified Phase 13 model experiences scale and tone distortion"
+  }
+}

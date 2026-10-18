@@ -1,0 +1,35 @@
+{
+  "timestamp_utc": "2026-10-18T06:20:00Z",
+  "dataset_splits": {
+    "train_windows": 26,
+    "val_windows": 12,
+    "test_windows": 11
+  },
+  "methods_benchmark": {
+    "method_0_raw_baseline": {
+      "description": "Unmodified Phase 13 production model without preprocessing calibration",
+      "test_accuracy": 0.2727,
+      "fall_recall": 0.0,
+      "macro_f1": 0.1689
+    },
+    "method_1_physics_calibration": {
+      "description": "2.385x Doppler frequency axis scaling + envelope detrending",
+      "test_accuracy": 0.2727,
+      "fall_recall": 0.0,
+      "macro_f1": 0.2061
+    },
+    "method_2_frozen_backbone_head_adapt": {
+      "description": "Transformer encoders frozen; input projections and classifier head adapted on real train split",
+      "test_accuracy": 0.1818,
+      "fall_recall": 0.5,
+      "macro_f1": 0.2
+    },
+    "method_3_full_dual_branch_fine_tuning": {
+      "description": "End-to-end dual-branch fine-tuning with cosine LR decay on real train split",
+      "test_accuracy": 0.1818,
+      "fall_recall": 0.5,
+      "macro_f1": 0.2,
+      "checkpoint": "models/csiformer_phase15_adapted.pth"
+    }
+  }
+}
