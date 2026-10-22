@@ -20,8 +20,126 @@ import json
 import shutil
 import hashlib
 from pathlib import Path
-from typing import Dict, Any, List, Set, Optional, Tuple
+from typing import Dict, Any, List, Set, Optional, Tuple, Sequence
 import numpy as np
+
+
+def compute_session_sampling_rate(
+    timestamps: Sequence[float],
+    wall_duration_s: Optional[float] = None
+) -> Dict[str, Any]:
+    """
+    Standardized CSIFormer physical sampling rate metric (Phase 24).
+
+    Mathematical definition:
+        Given N discrete physical packet timestamps [t_0, t_1, ..., t_{N-1}]:
+        Elapsed timestamp span: Delta_t = t_{N-1} - t_0
+        Inter-frame intervals: dt_i = t_i - t_{i-1} for i in {1, ..., N-1}
+        Mean inter-frame interval: bar{dt} = (1 / (N - 1)) * sum_{i=1}^{N-1} dt_i = (t_{N-1} - t_0) / (N - 1)
+
+        Empirical physical sampling rate:
+            f_empirical = (N - 1) / (t_{N-1} - t_0) == 1 / bar{dt}
+
+    Wall-clock sampling rate (informative host metric):
+        f_wall = N / T_wall
+
+    Treatment of edge cases:
+        - N < 2: f_empirical = 0.0 Hz, valid = False (insufficient interval data).
+        - Non-finite timestamps (NaN, Inf): valid = False, f_empirical = 0.0 Hz.
+        - Non-monotonic timestamps (dt < 0): valid = False, f_empirical = 0.0 Hz.
+        - Duplicate timestamps (dt == 0): valid = False, f_empirical = 0.0 Hz.
+        - Zero or negative elapsed span: valid = False, f_empirical = 0.0 Hz.
+    """
+    n = len(timestamps)
+    if n < 2:
+        return {
+            "frame_count": n,
+            "timestamp_span_s": 0.0,
+            "empirical_sampling_rate_hz": 0.0,
+            "mean_interval_ms": 0.0,
+            "median_interval_ms": 0.0,
+            "min_interval_ms": 0.0,
+            "max_interval_ms": 0.0,
+            "wall_clock_duration_s": wall_duration_s,
+            "wall_clock_rate_hz": round(n / wall_duration_s, 2) if (wall_duration_s and wall_duration_s > 0) else None,
+            "is_strictly_monotonic": True if n <= 1 else False,
+            "has_duplicates": False,
+            "valid": False,
+            "reason": f"Insufficient frames for interval rate (N={n} < 2)"
+        }
+
+    ts_arr = np.asarray(timestamps, dtype=np.float64)
+    if not np.all(np.isfinite(ts_arr)):
+        return {
+            "frame_count": n,
+            "timestamp_span_s": 0.0,
+            "empirical_sampling_rate_hz": 0.0,
+            "mean_interval_ms": 0.0,
+            "median_interval_ms": 0.0,
+            "min_interval_ms": 0.0,
+            "max_interval_ms": 0.0,
+            "wall_clock_duration_s": wall_duration_s,
+            "wall_clock_rate_hz": None,
+            "is_strictly_monotonic": False,
+            "has_duplicates": False,
+            "valid": False,
+            "reason": "Non-finite timestamp encountered (NaN or Inf)"
+        }
+
+    diffs = np.diff(ts_arr)
+    has_duplicates = bool(np.any(diffs == 0.0))
+    has_reversals = bool(np.any(diffs < 0.0))
+    is_strictly_monotonic = not (has_duplicates or has_reversals)
+
+    span = float(ts_arr[-1] - ts_arr[0])
+
+    if not is_strictly_monotonic or span <= 0.0:
+        reasons = []
+        if has_duplicates:
+            reasons.append("duplicate timestamps detected")
+        if has_reversals:
+            reasons.append("backward timestamp jumps / non-monotonic")
+        if span <= 0.0:
+            reasons.append("non-positive timestamp span")
+        return {
+            "frame_count": n,
+            "timestamp_span_s": round(span, 6),
+            "empirical_sampling_rate_hz": 0.0,
+            "mean_interval_ms": 0.0,
+            "median_interval_ms": 0.0,
+            "min_interval_ms": 0.0,
+            "max_interval_ms": 0.0,
+            "wall_clock_duration_s": wall_duration_s,
+            "wall_clock_rate_hz": round(n / wall_duration_s, 2) if (wall_duration_s and wall_duration_s > 0) else None,
+            "is_strictly_monotonic": is_strictly_monotonic,
+            "has_duplicates": has_duplicates,
+            "valid": False,
+            "reason": "; ".join(reasons)
+        }
+
+    empirical_rate = float((n - 1) / span)
+    mean_dt = float(np.mean(diffs))
+    median_dt = float(np.median(diffs))
+    min_dt = float(np.min(diffs))
+    max_dt = float(np.max(diffs))
+
+    wall_rate = round(n / wall_duration_s, 2) if (wall_duration_s and wall_duration_s > 0) else None
+
+    return {
+        "frame_count": n,
+        "timestamp_span_s": round(span, 6),
+        "empirical_sampling_rate_hz": round(empirical_rate, 4),
+        "mean_interval_ms": round(mean_dt * 1000.0, 3),
+        "median_interval_ms": round(median_dt * 1000.0, 3),
+        "min_interval_ms": round(min_dt * 1000.0, 3),
+        "max_interval_ms": round(max_dt * 1000.0, 3),
+        "wall_clock_duration_s": wall_duration_s,
+        "wall_clock_rate_hz": wall_rate,
+        "is_strictly_monotonic": True,
+        "has_duplicates": False,
+        "valid": True,
+        "reason": None
+    }
 
 
 class SessionValidationError(ValueError):
@@ -141,7 +259,10 @@ class DatasetIntegrityValidator:
         total_expected = len(seqs) + dropped_packets
         loss_rate = dropped_packets / total_expected if total_expected > 0 else 0.0
 
-        # 7. Metadata completeness
+        # 7. Sampling rate calculation
+        rate_metrics = compute_session_sampling_rate(timestamps, meta.get("duration_seconds"))
+
+        # 8. Metadata completeness
         room = meta.get("room_type", "Unknown")
         tx_dist = meta.get("tx_rx_distance_meters") or meta.get("tx_rx_distance_m", 0.0)
 
@@ -158,6 +279,9 @@ class DatasetIntegrityValidator:
             "tx_rx_distance_m": tx_dist,
             "has_raw_subcarriers": has_raw_subcarriers,
             "raw_subcarrier_counts": sorted(list(raw_sc_counts)),
+            "empirical_sampling_rate_hz": rate_metrics["empirical_sampling_rate_hz"],
+            "timestamp_span_s": rate_metrics["timestamp_span_s"],
+            "sampling_rate_metrics": rate_metrics,
             "valid": True
         }
 

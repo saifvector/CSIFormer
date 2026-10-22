@@ -66,6 +66,8 @@ export function App() {
         events={(telemetry as any)?.events || null}
         insights={(telemetry as any)?.insights || null}
         onSelectActivity={handleActivityChange}
+        dataSource={telemetry?.data_source || 'SIMULATION'}
+        isRealMeasurement={Boolean(telemetry?.is_real_measurement)}
       />
 
       {/* 2. CENTER HERO SPATIAL CANVASES SECTION (60% Width) */}
@@ -75,6 +77,8 @@ export function App() {
           isConnected={isConnected}
           cameraPreset={cameraPreset}
           setCameraPreset={setCameraPreset}
+          dataSource={telemetry?.data_source || 'SIMULATION'}
+          isRealMeasurement={Boolean(telemetry?.is_real_measurement)}
         />
 
         {/* Massive 3D Spatial Canvas */}
@@ -100,6 +104,7 @@ export function App() {
           cameraPreset={cameraPreset}
           setCameraPreset={setCameraPreset}
           onOpenRecorder={() => setShowRecorder(!showRecorder)}
+          currentHardwareMode={(telemetry as any)?.hardware?.source || 'simulated'}
         />
       </div>
 
@@ -111,6 +116,7 @@ export function App() {
         subcarriers={(telemetry as any)?.subcarriers || null}
         nodes={telemetry?.nodes || []}
         experimentStatus={(telemetry as any)?.experiment || null}
+        dataSource={telemetry?.data_source}
       />
     </div>
   );

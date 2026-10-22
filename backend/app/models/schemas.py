@@ -1,3 +1,4 @@
+import time
 from pydantic import BaseModel, Field
 from typing import List, Dict, Optional, Any
 
@@ -50,7 +51,7 @@ class TargetPosition3D(BaseModel):
     vz: float = 0.0
     confidence: float = 0.98
     zone: str = "Center Active Sensing Region"
-    timestamp: float
+    timestamp: float = Field(default_factory=time.time)
 
 class SingleTrackState(BaseModel):
     track_id: str

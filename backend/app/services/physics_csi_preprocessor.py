@@ -315,9 +315,27 @@ class CalibratedPhysicsPreprocessor(PhysicsCSIPreprocessor):
     Extends PhysicsCSIPreprocessor with carrier frequency scaling correction
     (2.385x Doppler scale expansion for 2.442 GHz -> 5.825 GHz equivalence).
     """
-    def __init__(self, carrier_freq=2.442e9, source_rate_hz=35.58, target_timesteps=50, target_channels=56):
-        super().__init__(carrier_freq, source_rate_hz, target_timesteps, target_channels)
-        self.doppler_scale = 5.825 / 2.442  # 2.385x scaling
+    def __init__(
+        self,
+        carrier_freq: float = 2.442e9,
+        source_rate_hz: float = 35.58,
+        target_timesteps: int = 50,
+        target_channels: int = 56,
+        stft_window: int = 64,
+        stft_noverlap: int = 48,
+        stft_nfft: int = 128,
+        doppler_scale: Optional[float] = None
+    ):
+        super().__init__(
+            carrier_freq=carrier_freq,
+            source_rate_hz=source_rate_hz,
+            target_timesteps=target_timesteps,
+            target_channels=target_channels,
+            stft_window=stft_window,
+            stft_noverlap=stft_noverlap,
+            stft_nfft=stft_nfft
+        )
+        self.doppler_scale = doppler_scale if doppler_scale is not None else (5.825 / 2.442)  # 2.385x scaling
 
     def compute_doppler_spectrogram(self, csi_amplitude: np.ndarray, remove_static: bool = True) -> np.ndarray:
         # Standard STFT

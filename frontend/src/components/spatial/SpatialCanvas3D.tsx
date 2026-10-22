@@ -31,6 +31,7 @@ export const SpatialCanvas3D: React.FC<SpatialCanvas3DProps> = ({
   const controlsRef = useRef<OrbitControlsImpl | null>(null);
 
   const multiTracks = (telemetry as any)?.multiperson?.tracks || [];
+  const isReal = Boolean((telemetry as any)?.is_real_measurement);
 
   useEffect(() => {
     if (!controlsRef.current) return;
@@ -52,6 +53,15 @@ export const SpatialCanvas3D: React.FC<SpatialCanvas3DProps> = ({
 
   return (
     <div className="w-full h-full relative bg-[#020617]">
+      {/* Watermark when real measurement lacks localization */}
+      {isReal && (
+        <div className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none">
+          <div className="text-center px-6 py-4 rounded-2xl bg-slate-950/70 border border-amber-500/30 backdrop-blur-sm">
+            <p className="text-amber-400 text-sm font-black uppercase tracking-widest">3D Localization Unavailable</p>
+            <p className="text-slate-400 text-[10px] mt-1">Single SISO receiver — AoA/multilateration requires multi-anchor deployment</p>
+          </div>
+        </div>
+      )}
       <Canvas
         camera={{ position: [5.0, 4.0, 5.0], fov: 50 }}
         gl={{ antialias: true }}
@@ -72,29 +82,31 @@ export const SpatialCanvas3D: React.FC<SpatialCanvas3DProps> = ({
         {visibility.showNodes && (
           <SensorNodes3D
             nodes={telemetry?.nodes || []}
-            target={telemetry?.target || null}
-            showBeams={visibility.showBeams}
+            target={!isReal ? (telemetry?.target || null) : null}
+            showBeams={!isReal && visibility.showBeams}
           />
         )}
 
-        {/* 3. RF beams + packet flow particles */}
-        {visibility.showBeams && (
+        {/* 3. RF beams + packet flow particles (simulation only) */}
+        {!isReal && visibility.showBeams && (
           <CSIRayBeams3D
             nodes={telemetry?.nodes || []}
             target={telemetry?.target || undefined}
           />
         )}
 
-        {/* 4. Dense CSI point cloud (centered on human target, hidden in production mode) */}
-        <CSIPointCloud3D
-          points={telemetry?.point_cloud || []}
-          visible={visibility.showPointCloud}
-          targetPosition={telemetry?.target || null}
-          renderingMode={visibility.renderingMode || 'production'}
-        />
+        {/* 4. Dense CSI point cloud (simulation only — single node cannot reconstruct) */}
+        {!isReal && (
+          <CSIPointCloud3D
+            points={telemetry?.point_cloud || []}
+            visible={visibility.showPointCloud}
+            targetPosition={telemetry?.target || null}
+            renderingMode={visibility.renderingMode || 'production'}
+          />
+        )}
 
-        {/* 5. HERO: Volumetric Reconstructed Human Avatar */}
-        {visibility.showAvatar && (
+        {/* 5. HERO: Volumetric Reconstructed Human Avatar (simulation only) */}
+        {!isReal && visibility.showAvatar && (
           multiTracks.length > 1 ? (
             <MultiHumanAvatar3D tracks={multiTracks} renderingMode={visibility.renderingMode || 'production'} />
           ) : (
@@ -108,19 +120,21 @@ export const SpatialCanvas3D: React.FC<SpatialCanvas3DProps> = ({
           )
         )}
 
-        {/* 6. Trajectory ribbon */}
-        {visibility.showTrajectory && multiTracks.length <= 1 && (
+        {/* 6. Trajectory ribbon (simulation only) */}
+        {!isReal && visibility.showTrajectory && multiTracks.length <= 1 && (
           <TrajectoryRibbon3D
             target={telemetry?.target || null}
             visible={visibility.showTrajectory}
           />
         )}
 
-        {/* 7. Ground heatmap */}
-        <GroundHeatmap3D
-          target={telemetry?.target || null}
-          visible={visibility.showHeatmap}
-        />
+        {/* 7. Ground heatmap (simulation only) */}
+        {!isReal && (
+          <GroundHeatmap3D
+            target={telemetry?.target || null}
+            visible={visibility.showHeatmap}
+          />
+        )}
 
         <OrbitControls
           ref={controlsRef}

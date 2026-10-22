@@ -16,7 +16,8 @@ class TrainModelRequest(BaseModel):
 
 @router.post("/simulation/activity")
 def set_simulated_activity(req: SetActivitySimulationRequest):
-    hal_provider.set_simulation_activity(req.activity, req.noise_level or 0.05)
+    provider = bridge_manager.get_active_provider()
+    provider.set_simulation_activity(req.activity, req.noise_level or 0.05)
     return {
         "status": "success",
         "active_activity": req.activity,

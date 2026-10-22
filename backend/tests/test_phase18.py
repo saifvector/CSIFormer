@@ -304,9 +304,19 @@ def test_multi_participant_split_allocation():
 # =============================================================================
 # 11. Rejection of 3-Way Split with N < 3
 # =============================================================================
-def test_insufficient_participants_error():
+def test_insufficient_participants_error(tmp_path):
     """Verify InsufficientParticipantsError when requesting 3-way split on 2 participants."""
-    gen = ParticipantIndependentSplitGenerator(MANIFEST_PATH)
+    fixture_manifest = tmp_path / "two_participant_manifest.json"
+    manifest_data = {
+        "dataset_name": "Test_2Participant_Fixture",
+        "sessions": [
+            {"session_id": "s1", "participant_id": "Participant_01", "activity_label": "walk", "packet_count": 50},
+            {"session_id": "s2", "participant_id": "Participant_02", "activity_label": "walk", "packet_count": 50}
+        ]
+    }
+    fixture_manifest.write_text(json.dumps(manifest_data), encoding="utf-8")
+
+    gen = ParticipantIndependentSplitGenerator(fixture_manifest)
     assert len(gen.participants) == 2
     with pytest.raises(InsufficientParticipantsError):
         gen.generate_loso_split(test_participant="Participant_02", val_participant="Participant_01")

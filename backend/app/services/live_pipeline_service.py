@@ -9,13 +9,13 @@ Exposes status, control (start/stop), and live prediction endpoints.
 import time
 import threading
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 import numpy as np
 import torch
 import torch.nn.functional as F
 
 from app.models.csiformer_dual_branch import CSIDualBranchFusionNet
-from app.services.physics_csi_preprocessor import PhysicsCSIPreprocessor
+from app.services.physics_csi_preprocessor import PhysicsCSIPreprocessor, CalibratedPhysicsPreprocessor
 from app.services.real_csi_collector import RealCSICollector
 
 
@@ -53,6 +53,7 @@ class LivePipelineService:
 
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.collector: Optional[RealCSICollector] = None
+        self.active_checkpoint_id: str = "phase13"
         self.preprocessor = PhysicsCSIPreprocessor(
             carrier_freq=2.442e9,
             source_rate_hz=30.0,
@@ -71,34 +72,119 @@ class LivePipelineService:
         self.last_prediction: Optional[Dict[str, Any]] = None
         self.last_prediction_time: float = 0.0
 
-    def _load_model(self):
-        try:
-            base_dir = Path(__file__).resolve().parent.parent.parent
-            ckpt_path = base_dir.parent / "models" / "csiformer_phase13_best.pth"
-            if not ckpt_path.exists():
-                ckpt_path = base_dir / "models" / "csiformer_phase13_best.pth"
-            if ckpt_path.exists():
-                model = CSIDualBranchFusionNet(
-                    num_subcarriers=56,
-                    doppler_bins=56,
-                    seq_len=50,
-                    num_classes=12,
-                    embed_dim=128,
-                    nhead=8,
-                    num_layers=3,
-                    dim_feedforward=512,
-                    dropout=0.1,
-                    fusion_mode="gated"
-                ).to(self.device)
-                state = torch.load(ckpt_path, map_location=self.device, weights_only=True)
-                model.load_state_dict(state)
-                model.eval()
-                self.model = model
+    def configure_preprocessor_for_checkpoint(self, checkpoint_id: str = "phase13"):
+        """
+        Configures the preprocessor associated with a specific model checkpoint.
+        - 'phase15': CalibratedPhysicsPreprocessor (2.385x Doppler scale expansion,
+                     stft_window=64, stft_noverlap=48, stft_nfft=128, source_rate_hz=35.58)
+                     matching models/csiformer_phase15_adapted.pth training reference.
+        - 'phase13': PhysicsCSIPreprocessor (1.0x Doppler scale,
+                     stft_window=32, stft_noverlap=24, stft_nfft=64, source_rate_hz=30.0)
+                     matching models/csiformer_phase13_best.pth default deployment.
+        """
+        cid = str(checkpoint_id).lower()
+        if "phase15" in cid:
+            self.preprocessor = CalibratedPhysicsPreprocessor(
+                carrier_freq=2.442e9,
+                source_rate_hz=35.58,
+                target_timesteps=50,
+                target_channels=56,
+                stft_window=64,
+                stft_noverlap=48,
+                stft_nfft=128
+            )
+            self.active_checkpoint_id = "phase15"
+        elif "phase13" in cid or cid == "default":
+            self.preprocessor = PhysicsCSIPreprocessor(
+                carrier_freq=2.442e9,
+                source_rate_hz=30.0,
+                target_timesteps=50,
+                target_channels=56,
+                stft_window=32,
+                stft_noverlap=24,
+                stft_nfft=64
+            )
+            self.active_checkpoint_id = "phase13"
+        else:
+            raise ValueError(f"Unknown or unsupported checkpoint_id '{checkpoint_id}'. Supported: 'phase13', 'phase15'.")
+
+    def load_checkpoint(self, checkpoint_path: Optional[Path] = None, checkpoint_id: Optional[str] = None):
+        """
+        Loads a specific model checkpoint and automatically aligns the preprocessor.
+        Ensures atomic state transition: does not leave partial updates on error.
+        """
+        base_dir = Path(__file__).resolve().parent.parent.parent
+        if checkpoint_path is None:
+            if checkpoint_id and "phase15" in str(checkpoint_id).lower():
+                ckpt_path = base_dir.parent / "models" / "csiformer_phase15_adapted.pth"
+                if not ckpt_path.exists():
+                    ckpt_path = base_dir / "models" / "csiformer_phase15_adapted.pth"
             else:
-                self.model = None
+                ckpt_path = base_dir.parent / "models" / "csiformer_phase13_best.pth"
+                if not ckpt_path.exists():
+                    ckpt_path = base_dir / "models" / "csiformer_phase13_best.pth"
+        else:
+            ckpt_path = Path(checkpoint_path)
+
+        if not ckpt_path.exists():
+            print(f"[LivePipelineService] Warning: Checkpoint path does not exist: {ckpt_path}")
+            self.model = None
+            if checkpoint_path is not None:
+                raise FileNotFoundError(f"Checkpoint not found at: {ckpt_path}")
+            return
+
+        effective_id = checkpoint_id or ("phase15" if "phase15" in str(ckpt_path).lower() else ("phase13" if "phase13" in str(ckpt_path).lower() else None))
+        if effective_id is None:
+            self.model = None
+            raise ValueError(f"Cannot infer supported checkpoint configuration from path '{ckpt_path}'. Specify checkpoint_id='phase13' or 'phase15'.")
+
+        try:
+            model = CSIDualBranchFusionNet(
+                num_subcarriers=56,
+                doppler_bins=56,
+                seq_len=50,
+                num_classes=12,
+                embed_dim=128,
+                nhead=8,
+                num_layers=3,
+                dim_feedforward=512,
+                dropout=0.1,
+                fusion_mode="gated"
+            ).to(self.device)
+            state = torch.load(ckpt_path, map_location=self.device, weights_only=True)
+            model.load_state_dict(state)
+            model.eval()
+
+            # Align preprocessor and active id only after model successfully loaded
+            self.configure_preprocessor_for_checkpoint(effective_id)
+            self.model = model
         except Exception as e:
             print(f"[LivePipelineService] Warning: Could not load model: {e}")
             self.model = None
+            raise
+
+    def preprocess_window(self, raw_win: np.ndarray) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Deterministically transforms a raw 50x56 CSI amplitude window into
+        dual-branch input tensors (tensor_raw, tensor_dopp) for model inference.
+        """
+        if raw_win.shape != (50, 56) or not np.isfinite(raw_win).all():
+            raise ValueError(f"Invalid window shape {raw_win.shape} or non-finite values.")
+
+        # Normalize Raw Branch (per-subcarrier temporal z-score)
+        amp_mean = raw_win.mean(axis=0, keepdims=True)
+        amp_std = raw_win.std(axis=0, keepdims=True) + 1e-6
+        norm_raw = (raw_win - amp_mean) / amp_std
+        tensor_raw = torch.tensor(norm_raw, dtype=torch.float32).unsqueeze(0).to(self.device)
+
+        # Compute Doppler Branch
+        doppler_mat = self.preprocessor.compute_doppler_spectrogram(raw_win)
+        tensor_dopp = torch.tensor(doppler_mat, dtype=torch.float32).unsqueeze(0).to(self.device)
+
+        return tensor_raw, tensor_dopp
+
+    def _load_model(self):
+        self.load_checkpoint()
 
     def start_collector(self, port: Optional[str] = None, baud_rate: int = 115200) -> Dict[str, Any]:
         if self.collector is not None and self.collector.is_streaming:
@@ -187,19 +273,11 @@ class LivePipelineService:
             }
         raw_win, _ = latest
 
-        # Validate
-        if raw_win.shape != (50, 56) or not np.isfinite(raw_win).all():
-            return {"status": "error", "error": f"Invalid window shape {raw_win.shape}"}
-
-        # Normalize Raw Branch
-        amp_mean = raw_win.mean(axis=0, keepdims=True)
-        amp_std = raw_win.std(axis=0, keepdims=True) + 1e-6
-        norm_raw = (raw_win - amp_mean) / amp_std
-        tensor_raw = torch.tensor(norm_raw, dtype=torch.float32).unsqueeze(0).to(self.device)
-
-        # Compute Doppler Branch
-        doppler_mat = self.preprocessor.compute_doppler_spectrogram(raw_win)
-        tensor_dopp = torch.tensor(doppler_mat, dtype=torch.float32).unsqueeze(0).to(self.device)
+        # Validate and Preprocess Window
+        try:
+            tensor_raw, tensor_dopp = self.preprocess_window(raw_win)
+        except Exception as e:
+            return {"status": "error", "error": f"Preprocessing failed: {e}"}
 
         with torch.no_grad():
             out = self.model(tensor_raw, tensor_dopp)

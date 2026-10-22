@@ -5,12 +5,16 @@ interface SpatialHeaderHUDProps {
   isConnected: boolean;
   cameraPreset: 'isometric' | 'topdown' | 'sensoreye';
   setCameraPreset: (preset: 'isometric' | 'topdown' | 'sensoreye') => void;
+  dataSource?: 'LIVE HARDWARE' | 'RECORDED REPLAY' | 'SIMULATION' | string;
+  isRealMeasurement?: boolean;
 }
 
 export const SpatialHeaderHUD: React.FC<SpatialHeaderHUDProps> = ({
   isConnected,
   cameraPreset,
-  setCameraPreset
+  setCameraPreset,
+  dataSource = 'SIMULATION',
+  isRealMeasurement = false,
 }) => {
   return (
     <div className="absolute top-4 left-4 right-4 z-40 flex items-center justify-between pointer-events-none">
@@ -34,8 +38,48 @@ export const SpatialHeaderHUD: React.FC<SpatialHeaderHUDProps> = ({
         </div>
       </div>
 
-      {/* Camera Viewport Perspective Switcher & WS Stream Status */}
+      {/* Data Source Badge, Camera Viewport Perspective Switcher & WS Stream Status */}
       <div className="flex items-center space-x-3 pointer-events-auto">
+        {/* Prominent Data Source Badge */}
+        <div
+          className={`hud-panel px-3 py-1.5 rounded-xl flex items-center space-x-2 font-mono text-xs border ${
+            dataSource === 'LIVE HARDWARE'
+              ? 'bg-emerald-950/90 border-emerald-500 text-emerald-300 shadow-lg shadow-emerald-500/20'
+              : dataSource === 'RECORDED REPLAY'
+              ? 'bg-amber-950/90 border-amber-500 text-amber-300 shadow-lg shadow-amber-500/20'
+              : 'bg-purple-950/80 border-purple-500/40 text-purple-300'
+          }`}
+        >
+          <span className="relative flex h-2 w-2">
+            <span
+              className={`animate-ping absolute inline-flex h-full w-full rounded-full ${
+                dataSource === 'LIVE HARDWARE'
+                  ? 'bg-emerald-400'
+                  : dataSource === 'RECORDED REPLAY'
+                  ? 'bg-amber-400'
+                  : 'bg-purple-400'
+              } opacity-75`}
+            ></span>
+            <span
+              className={`relative inline-flex rounded-full h-2 w-2 ${
+                dataSource === 'LIVE HARDWARE'
+                  ? 'bg-emerald-500'
+                  : dataSource === 'RECORDED REPLAY'
+                  ? 'bg-amber-500'
+                  : 'bg-purple-500'
+              }`}
+            ></span>
+          </span>
+          <div className="flex flex-col">
+            <span className="font-extrabold tracking-wider leading-none text-[10px]">
+              SOURCE: {dataSource}
+            </span>
+            <span className="text-[8px] text-slate-400 leading-tight">
+              {isRealMeasurement ? 'Measured CSI (Real)' : 'Synthetic RF Model'}
+            </span>
+          </div>
+        </div>
+
         {/* Camera Preset Switcher */}
         <div className="hud-panel p-1 rounded-xl flex items-center space-x-1 font-mono text-xs">
           <button

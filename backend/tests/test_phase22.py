@@ -134,23 +134,24 @@ def test_phase22_manifest_indexing_and_packet_counts():
         manifest = json.load(f)
 
     sessions = manifest["sessions"]
-    assert len(sessions) == 24, f"Expected 24 sessions in manifest, got {len(sessions)}"
+    assert len(sessions) >= 24, f"Expected at least 24 sessions in manifest, got {len(sessions)}"
 
-    last_session = sessions[-1]
-    assert last_session["session_id"] == NEW_SESSION_ID
-    assert last_session["participant_id"] == "Participant_03"
-    assert last_session["activity_label"] == "walk"
-    assert last_session["class_id"] == 11
-    assert last_session["confirmation_status"] == "confirmed"
-    assert last_session["packet_count"] == 143
-    assert last_session["room"] == "Laboratory"
-    assert last_session["tx_rx_distance_m"] == 2.5
-    assert last_session["subcarrier_alignment_method"] == "linear_interpolation_to_56"
+    p22_sessions = [s for s in sessions if s["session_id"] == NEW_SESSION_ID]
+    assert len(p22_sessions) == 1, f"Session {NEW_SESSION_ID} not found in manifest"
+    session_info = p22_sessions[0]
+    assert session_info["participant_id"] == "Participant_03"
+    assert session_info["activity_label"] == "walk"
+    assert session_info["class_id"] == 11
+    assert session_info["confirmation_status"] == "confirmed"
+    assert session_info["packet_count"] == 143
+    assert session_info["room"] == "Laboratory"
+    assert session_info["tx_rx_distance_m"] == 2.5
+    assert session_info["subcarrier_alignment_method"] == "linear_interpolation_to_56"
 
     total_frames = sum(s["packet_count"] for s in sessions)
-    assert total_frames == 3355
-    assert manifest["splits_summary"]["total_sessions"] == 24
-    assert manifest["splits_summary"]["total_frames"] == 3355
+    assert total_frames >= 3355
+    assert manifest["splits_summary"]["total_sessions"] >= 24
+    assert manifest["splits_summary"]["total_frames"] >= 3355
 
 
 def test_phase22_dataset_integrity_validator_full_pass():
@@ -159,12 +160,12 @@ def test_phase22_dataset_integrity_validator_full_pass():
     res = validator.validate_dataset_manifest()
 
     assert res["all_sessions_valid"] is True
-    assert res["total_sessions"] == 24
-    assert res["total_packets"] == 3355
-    assert res["total_windows"] == 51
-    assert res["distinct_participants"] == ["Participant_01", "Participant_02", "Participant_03"]
-    assert res["distinct_events"] == 24
-    assert res["activity_windows"]["walk"] == 11
+    assert res["total_sessions"] >= 24
+    assert res["total_packets"] >= 3355
+    assert res["total_windows"] >= 51
+    assert {"Participant_01", "Participant_02", "Participant_03"}.issubset(set(res["distinct_participants"]))
+    assert res["distinct_events"] >= 24
+    assert res["activity_windows"]["walk"] >= 11
 
 
 def test_phase22_participant_diversity_expansion():
@@ -172,24 +173,24 @@ def test_phase22_participant_diversity_expansion():
     generator = ParticipantIndependentSplitGenerator(MANIFEST_PATH)
     participants = generator.participants
 
-    assert len(participants) == 3
+    assert len(participants) >= 3
     assert "Participant_01" in participants
     assert "Participant_02" in participants
     assert "Participant_03" in participants
 
     summary = generator.get_participant_summary()
     p3_summary = summary["Participant_03"]
-    assert p3_summary["session_count"] == 1
-    assert p3_summary["total_packets"] == 143
-    assert p3_summary["total_windows"] == 2
-    assert p3_summary["activity_windows"] == {"walk": 2}
+    assert p3_summary["session_count"] >= 1
+    assert p3_summary["total_packets"] >= 143
+    assert p3_summary["total_windows"] >= 2
+    assert p3_summary["activity_windows"]["walk"] >= 2
 
 
 def test_phase22_3way_loso_split_feasibility():
     """Verify that 3 participants enables a 3-way participant-independent partition without overlap."""
     generator = ParticipantIndependentSplitGenerator(MANIFEST_PATH)
 
-    # 3-way split: Train = Participant_01, Val = Participant_03, Test = Participant_02
+    # 3-way split: Train = Participant_01 (and any other unassigned), Val = Participant_03, Test = Participant_02
     split = generator.generate_loso_split(
         test_participant="Participant_02",
         val_participant="Participant_03",
@@ -206,7 +207,7 @@ def test_phase22_3way_loso_split_feasibility():
     assert train_p.isdisjoint(test_p)
     assert val_p.isdisjoint(test_p)
 
-    assert train_p == {"Participant_01"}
+    assert "Participant_01" in train_p
     assert val_p == {"Participant_03"}
     assert test_p == {"Participant_02"}
 

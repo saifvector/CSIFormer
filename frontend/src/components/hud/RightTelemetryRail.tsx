@@ -13,30 +13,22 @@ interface RightTelemetryRailProps {
     stability_pct?: number;
     predicted_vector?: { x: number; y: number };
   } | null;
-  hardware?: {
-    devices?: Array<{
-      device_id: string;
-      name: string;
-      port: string;
-      packet_rate_hz: number;
-      rssi: number;
-      packet_loss_pct: number;
-    }>;
-  } | null;
-  subcarriers?: {
-    amplitudes?: number[];
-  } | null;
+  hardware?: any;
+  subcarriers?: any;
   nodes?: NodeInfo[];
   experimentStatus?: {
     status?: string;
   } | null;
+  dataSource?: string;
 }
 
 export const RightTelemetryRail: React.FC<RightTelemetryRailProps> = ({
   target,
   tracking,
+  hardware,
   subcarriers,
   experimentStatus,
+  dataSource,
 }) => {
   const [selectedExp, setSelectedExp] = useState<string>('exp_01');
   const [isRecording, setIsRecording] = useState<boolean>(false);
@@ -57,7 +49,22 @@ export const RightTelemetryRail: React.FC<RightTelemetryRailProps> = ({
     ? (colRes.nearestCollider?.isRestricted ? 'RESTRICTED' : 'LOCALIZATION REFINED')
     : (colRes.closestDistance < 0.40 ? 'AVOIDING OBSTACLE' : 'OCCUPANCY VERIFIED');
 
-  const amps = subcarriers?.amplitudes || Array.from({ length: 64 }, (_, i) => 15.0 + Math.sin(i * 0.2) * 4.0);
+  const isReal = subcarriers?.is_real_measurement || hardware?.is_real_measurement || false;
+  const sourceLabel = dataSource || hardware?.source_label || (isReal ? 'REAL CSI' : 'SIMULATION');
+  const validFrames = hardware?.valid_frames ?? hardware?.packets_received ?? 0;
+  const parseFailures = hardware?.parse_failures ?? 0;
+  const packetRateHz = hardware?.packet_rate_hz ?? (hardware?.devices?.[0]?.packet_rate_hz ?? 0);
+  const rssi = subcarriers?.rssi ?? hardware?.devices?.[0]?.rssi ?? -61;
+  const noiseFloor = subcarriers?.noise_floor ?? -92;
+  const lastPacketTime = hardware?.last_packet_time
+    ? new Date(hardware.last_packet_time * 1000).toLocaleTimeString()
+    : 'Active';
+
+  const rawAmps: number[] = subcarriers?.amplitudes || [];
+  const amps = rawAmps.length > 0
+    ? rawAmps
+    : Array.from({ length: 64 }, (_, i) => 15.0 + Math.sin(i * 0.2) * 4.0);
+
   const isExpActive = experimentStatus?.status === 'recording' || isRecording;
 
   const handleStart = async () => {
@@ -88,99 +95,151 @@ export const RightTelemetryRail: React.FC<RightTelemetryRailProps> = ({
               <Target className="w-4 h-4" />
               <h3 className="text-xs font-black uppercase tracking-widest text-[#E2F8FF]">3D Kinematics</h3>
             </div>
-            <span className="text-[9px] px-2 py-0.5 rounded bg-cyan-950 text-[#00F0FF] border border-[#00F0FF]/40 font-bold">
-              30 FPS KALMAN
+            <span className={`text-[9px] px-2 py-0.5 rounded font-bold border ${
+              isReal
+                ? 'bg-amber-950 text-amber-300 border-amber-600'
+                : 'bg-cyan-950 text-[#00F0FF] border-[#00F0FF]/40'
+            }`}>
+              {isReal ? 'UNAVAILABLE' : '30 FPS KALMAN'}
             </span>
           </div>
 
-          {/* Coordinates Grid */}
-          <div className="grid grid-cols-3 gap-1 text-center font-bold text-[10px]">
-            <div className="p-2 rounded-lg bg-[#020617] border border-slate-800">
-              <span className="block text-[8px] text-[#94A3B8]">X COORD</span>
-              <span className="text-[#00F0FF] text-xs">{tx} m</span>
+          {isReal ? (
+            <div className="p-3 rounded-xl bg-amber-950/30 border border-amber-600/30 text-[10px] text-amber-300">
+              <p className="font-bold">Localization unavailable</p>
+              <p className="text-amber-400/70 mt-1">Single 1×1 SISO receiver cannot determine AoA or 3D coordinates. Coordinates, speed, and stability require multi-anchor deployment.</p>
             </div>
-            <div className="p-2 rounded-lg bg-[#020617] border border-slate-800">
-              <span className="block text-[8px] text-[#94A3B8]">Y COORD</span>
-              <span className="text-[#00F0FF] text-xs">{ty} m</span>
-            </div>
-            <div className="p-2 rounded-lg bg-[#020617] border border-slate-800">
-              <span className="block text-[8px] text-[#94A3B8]">HEIGHT Z</span>
-              <span className="text-[#00F0FF] text-xs">{tz} m</span>
-            </div>
-          </div>
+          ) : (
+            <>
+              {/* Coordinates Grid */}
+              <div className="grid grid-cols-3 gap-1 text-center font-bold text-[10px]">
+                <div className="p-2 rounded-lg bg-[#020617] border border-slate-800">
+                  <span className="block text-[8px] text-[#94A3B8]">X COORD</span>
+                  <span className="text-[#00F0FF] text-xs">{tx} m</span>
+                </div>
+                <div className="p-2 rounded-lg bg-[#020617] border border-slate-800">
+                  <span className="block text-[8px] text-[#94A3B8]">Y COORD</span>
+                  <span className="text-[#00F0FF] text-xs">{ty} m</span>
+                </div>
+                <div className="p-2 rounded-lg bg-[#020617] border border-slate-800">
+                  <span className="block text-[8px] text-[#94A3B8]">HEIGHT Z</span>
+                  <span className="text-[#00F0FF] text-xs">{tz} m</span>
+                </div>
+              </div>
 
-          <div className="grid grid-cols-2 gap-2 text-[10px]">
-            <div className="p-2.5 rounded-xl bg-[#020617] border border-slate-800">
-              <span className="text-[8px] text-[#94A3B8] uppercase tracking-widest block font-bold">Speed</span>
-              <span className="text-sm font-black text-emerald-400">{speed} m/s</span>
-            </div>
-            <div className="p-2.5 rounded-xl bg-[#020617] border border-slate-800">
-              <span className="text-[8px] text-[#94A3B8] uppercase tracking-widest block font-bold">Stability</span>
-              <span className="text-sm font-black text-[#00F0FF]">{stability}%</span>
-            </div>
-          </div>
+              <div className="grid grid-cols-2 gap-2 text-[10px]">
+                <div className="p-2.5 rounded-xl bg-[#020617] border border-slate-800">
+                  <span className="text-[8px] text-[#94A3B8] uppercase tracking-widest block font-bold">Speed</span>
+                  <span className="text-sm font-black text-emerald-400">{speed} m/s</span>
+                </div>
+                <div className="p-2.5 rounded-xl bg-[#020617] border border-slate-800">
+                  <span className="text-[8px] text-[#94A3B8] uppercase tracking-widest block font-bold">Stability</span>
+                  <span className="text-sm font-black text-[#00F0FF]">{stability}%</span>
+                </div>
+              </div>
+            </>
+          )}
         </div>
 
-        {/* Section 1b: Spatial Collision & Realistic Navigation */}
-        <div className="space-y-2 pt-2 border-t border-slate-800">
-          <div className="flex items-center justify-between pb-1 border-b border-slate-800">
-            <div className="flex items-center space-x-2 text-[#00F0FF]">
-              <ShieldCheck className="w-4 h-4" />
-              <h3 className="text-xs font-black uppercase tracking-widest text-[#E2F8FF]">Spatial Collision</h3>
-            </div>
-            <span
-              className={`text-[9px] px-2 py-0.5 rounded font-bold border ${
-                collisionStatus === 'OCCUPANCY VERIFIED'
-                  ? 'bg-emerald-950 text-emerald-400 border-emerald-700/50'
-                  : collisionStatus === 'AVOIDING OBSTACLE'
-                  ? 'bg-amber-950 text-amber-300 border-amber-500/50 animate-pulse'
-                  : collisionStatus === 'LOCALIZATION REFINED'
-                  ? 'bg-cyan-950 text-cyan-300 border-cyan-500/50'
-                  : 'bg-rose-950 text-rose-300 border-rose-600/50'
-              }`}
-            >
-              {collisionStatus}
-            </span>
-          </div>
-
-          <div className="grid grid-cols-2 gap-2 text-[10px]">
-            <div className="p-2.5 rounded-xl bg-[#020617] border border-slate-800">
-              <span className="text-[8px] text-[#94A3B8] uppercase tracking-widest block font-bold">NavMesh Area</span>
-              <span className="text-sm font-black text-[#00F0FF]">{navStats.walkablePct.toFixed(1)}%</span>
-            </div>
-            <div className="p-2.5 rounded-xl bg-[#020617] border border-slate-800">
-              <span className="text-[8px] text-[#94A3B8] uppercase tracking-widest block font-bold">Nearest Obstacle</span>
-              <span className="text-xs font-bold text-slate-200 truncate block">
-                {colRes.nearestCollider?.name ? colRes.nearestCollider.name.split(' ')[0] : 'Clear'}
+        {!isReal && (
+          <div className="space-y-2 pt-2 border-t border-slate-800">
+            <div className="flex items-center justify-between pb-1 border-b border-slate-800">
+              <div className="flex items-center space-x-2 text-[#00F0FF]">
+                <ShieldCheck className="w-4 h-4" />
+                <h3 className="text-xs font-black uppercase tracking-widest text-[#E2F8FF]">Spatial Collision</h3>
+              </div>
+              <span
+                className={`text-[9px] px-2 py-0.5 rounded font-bold border ${
+                  collisionStatus === 'OCCUPANCY VERIFIED'
+                    ? 'bg-emerald-950 text-emerald-400 border-emerald-700/50'
+                    : collisionStatus === 'AVOIDING OBSTACLE'
+                    ? 'bg-amber-950 text-amber-300 border-amber-500/50 animate-pulse'
+                    : collisionStatus === 'LOCALIZATION REFINED'
+                    ? 'bg-cyan-950 text-cyan-300 border-cyan-500/50'
+                    : 'bg-rose-950 text-rose-300 border-rose-600/50'
+                }`}
+              >
+                {collisionStatus}
               </span>
             </div>
-          </div>
-        </div>
 
-        {/* Section 2: ESP32 Hardware Status & 64 Subcarrier Inspector */}
+            <div className="grid grid-cols-2 gap-2 text-[10px]">
+              <div className="p-2.5 rounded-xl bg-[#020617] border border-slate-800">
+                <span className="text-[8px] text-[#94A3B8] uppercase tracking-widest block font-bold">NavMesh Area</span>
+                <span className="text-sm font-black text-[#00F0FF]">{navStats.walkablePct.toFixed(1)}%</span>
+              </div>
+              <div className="p-2.5 rounded-xl bg-[#020617] border border-slate-800">
+                <span className="text-[8px] text-[#94A3B8] uppercase tracking-widest block font-bold">Nearest Obstacle</span>
+                <span className="text-xs font-bold text-slate-200 truncate block">
+                  {colRes.nearestCollider?.name ? colRes.nearestCollider.name.split(' ')[0] : 'Clear'}
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Section 2: ESP32 Hardware Status & Subcarrier Inspector */}
         <div className="space-y-2 pt-2 border-t border-slate-800">
           <div className="flex items-center justify-between pb-1 border-b border-slate-800">
             <div className="flex items-center space-x-2 text-[#00F0FF]">
               <Cpu className="w-4 h-4" />
-              <h3 className="text-xs font-black uppercase tracking-widest text-[#E2F8FF]">ESP32 Hardware</h3>
+              <h3 className="text-xs font-black uppercase tracking-widest text-[#E2F8FF]">
+                {isReal ? 'Hardware & CSI Profile' : 'ESP32 Hardware'}
+              </h3>
             </div>
-            <span className="text-[9px] text-emerald-400 font-bold">3 RX NODES ACTIVE</span>
+            <span className={`text-[9px] font-bold px-2 py-0.5 rounded border ${
+              isReal
+                ? 'text-emerald-300 bg-emerald-950 border-emerald-600'
+                : 'text-cyan-300 bg-cyan-950 border-cyan-800'
+            }`}>
+              {sourceLabel}
+            </span>
           </div>
 
-          {/* 64 Subcarrier Signal Chart */}
+          {/* Real Metrics Grid */}
+          <div className="grid grid-cols-2 gap-1.5 text-[10px]">
+            <div className="p-2 rounded-lg bg-[#020617] border border-slate-800">
+              <span className="text-[8px] text-[#94A3B8] uppercase tracking-widest block font-bold">Valid Frames</span>
+              <span className="text-xs font-bold text-emerald-400">
+                {validFrames} {parseFailures > 0 ? `(${parseFailures} fail)` : ''}
+              </span>
+            </div>
+            <div className="p-2 rounded-lg bg-[#020617] border border-slate-800">
+              <span className="text-[8px] text-[#94A3B8] uppercase tracking-widest block font-bold">Packet Rate</span>
+              <span className="text-xs font-bold text-[#00F0FF]">{packetRateHz.toFixed(1)} Hz</span>
+            </div>
+            <div className="p-2 rounded-lg bg-[#020617] border border-slate-800">
+              <span className="text-[8px] text-[#94A3B8] uppercase tracking-widest block font-bold">RF Signal / Noise</span>
+              <span className="text-xs font-bold text-slate-200">{rssi} dBm / {noiseFloor} dBm</span>
+            </div>
+            <div className="p-2 rounded-lg bg-[#020617] border border-slate-800">
+              <span className="text-[8px] text-[#94A3B8] uppercase tracking-widest block font-bold">Timestamp</span>
+              <span className="text-xs font-bold text-slate-300 truncate block">{lastPacketTime}</span>
+            </div>
+          </div>
+
+          {/* Subcarrier Signal Chart */}
           <div className="p-2.5 rounded-xl bg-[#020617] border border-slate-800 space-y-1.5">
-            <div className="flex justify-between text-[9px] font-bold text-[#00F0FF]">
-              <span>64 Subcarrier Profile</span>
-              <span className="text-[#94A3B8]">20 MHz</span>
+            <div className="flex justify-between text-[9px] font-bold">
+              <span className={isReal ? 'text-emerald-400' : 'text-[#00F0FF]'}>
+                {isReal ? 'Physical Measured Subcarriers' : '64 Subcarrier Profile'}
+              </span>
+              <span className="text-[#94A3B8]">
+                {amps.length} subcarriers {isReal ? '(Format B)' : '(20 MHz)'}
+              </span>
             </div>
             <div className="h-16 w-full flex items-end justify-between gap-[1px] bg-slate-950 p-1.5 rounded-md border border-slate-800">
               {amps.map((amp, idx) => {
-                const h = Math.min(100, Math.max(10, (amp / 30.0) * 100));
+                const maxVal = isReal ? 35.0 : 30.0;
+                const h = Math.min(100, Math.max(8, (amp / maxVal) * 100));
                 return (
                   <div
                     key={idx}
-                    className="w-full bg-[#00F0FF]/80 rounded-t-sm"
+                    className={`w-full rounded-t-sm ${
+                      isReal ? 'bg-gradient-to-t from-emerald-500 to-cyan-400' : 'bg-[#00F0FF]/80'
+                    }`}
                     style={{ height: `${h}%` }}
+                    title={`Subcarrier #${idx}: amp=${amp.toFixed(1)}`}
                   ></div>
                 );
               })}

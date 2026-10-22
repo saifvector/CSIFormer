@@ -38,6 +38,11 @@ except ImportError:
     HAS_PYSERIAL = False
 
 from app.services.esp32_csi_adapter import ESP32CSIAdapter
+try:
+    from app.services.session_validator import compute_session_sampling_rate
+except ImportError:
+    from backend.app.services.session_validator import compute_session_sampling_rate
+
 
 
 class RealCSICollector:
@@ -57,7 +62,9 @@ class RealCSICollector:
         baud_rate: int = 115200,
         target_mode: str = "HT20",
         data_dir: str = "data/recordings",
-        auto_connect: bool = False
+        auto_connect: bool = False,
+        target_mac: Optional[str] = "98:BA:5F:EF:28:26",
+        filter_by_mac: bool = False
     ):
         self.port = port
         self.baud_rate = baud_rate
@@ -65,12 +72,25 @@ class RealCSICollector:
         self.data_dir = Path(data_dir)
         self.data_dir.mkdir(parents=True, exist_ok=True)
 
+        # Configurable Target-Source Filtering (Phase 52)
+        self.target_mac: Optional[str] = target_mac.upper() if target_mac else None
+        self.filter_by_mac: bool = filter_by_mac
+        self.filtered_non_target_packets: int = 0
+        self.source_mac_counts: Dict[str, int] = {}
+
         self.adapter = ESP32CSIAdapter(target_mode=target_mode, target_rate_hz=30.0)
 
         # Thread-safe sliding temporal window: shape [50, 56]
         self._window_lock = threading.Lock()
         self.raw_frame_buffer = deque(maxlen=self.WINDOW_SIZE)
         self.phase_frame_buffer = deque(maxlen=self.WINDOW_SIZE)
+
+        # Temporal and Sequence Metadata Buffers (Phase 56)
+        self.timestamp_buffer = deque(maxlen=self.WINDOW_SIZE)
+        self.monotonic_buffer = deque(maxlen=self.WINDOW_SIZE)
+        self.sequence_buffer = deque(maxlen=self.WINDOW_SIZE)
+        self.source_mac_buffer = deque(maxlen=self.WINDOW_SIZE)
+        self.hw_timestamp_buffer = deque(maxlen=self.WINDOW_SIZE)
 
         # Connection & Threading state
         self.serial_handle: Optional[Any] = None
@@ -89,6 +109,24 @@ class RealCSICollector:
         self.last_packet_time: float = time.time()
         self.jitter_ms: float = 0.0
         self.detected_protocol: str = "unknown"
+
+        # Sequence Tracking & Loss Accounting Semantics (Phase 57 / 57.2 / 57.3)
+        # Note: A gap in the firmware callback sequence counter proves that one or more
+        # callback invocations occurred on ESP32 whose records were not parsed on the host.
+        # It does NOT prove the loss occurred specifically in the UART transport layer;
+        # it could stem from firmware queue drops, UART TX/RX drops, parser rejections, or host OS buffering.
+        self.last_firmware_seq: Optional[int] = None
+        # Primary authoritative metric: callback sequence counter gaps observed across parsed records
+        self.firmware_sequence_gaps: int = 0
+        self.target_sequence_gaps: int = 0
+        self.counter_resets: int = 0
+        self.out_of_order_packets: int = 0
+        self.duplicate_packets: int = 0
+        # Backward-compatible legacy aliases: mirror firmware_sequence_gaps.
+        # WARNING: These legacy aliases do NOT independently prove UART or transport-layer drops;
+        # attributing callback counter gaps to the serial wire without a hardware logic analyzer is an overclaim.
+        self.confirmed_transport_loss: int = 0
+        self.packets_lost: int = 0
 
         # Diagnostic State Machine & Telemetry (Phase 21)
         self.diagnostic_state: str = "SERIAL_DISCONNECTED"
@@ -159,19 +197,15 @@ class RealCSICollector:
             if self.serial_handle and self.serial_handle.is_open:
                 self.serial_handle.close()
 
-            self.serial_handle = serial.Serial(
-                port=target_port,
-                baudrate=target_baud,
-                timeout=1.0,
-                write_timeout=1.0
-            )
-
+            self.serial_handle = serial.Serial()
+            self.serial_handle.port = target_port
+            self.serial_handle.baudrate = target_baud
+            self.serial_handle.timeout = 1.0
+            self.serial_handle.write_timeout = 1.0
             # Prevent DTR/RTS auto-reset into bootloader (CH343/ESP32-S3 auto-download trap)
-            try:
-                self.serial_handle.dtr = False
-                self.serial_handle.rts = False
-            except Exception:
-                pass
+            self.serial_handle.dtr = False
+            self.serial_handle.rts = False
+            self.serial_handle.open()
 
             self.port = target_port
             self.baud_rate = target_baud
@@ -205,17 +239,35 @@ class RealCSICollector:
             print(f"[RealCSICollector] Reset pulse error: {e}")
             return False
 
-    def disconnect(self):
-        """Safely stops streaming and closes the serial port."""
+    def is_port_released(self) -> bool:
+        """
+        Confirms whether the serial port and background acquisition thread
+        are cleanly and completely released.
+        """
+        thread_stopped = (self._worker_thread is None) or (not self._worker_thread.is_alive())
+        serial_closed = (self.serial_handle is None) or (not getattr(self.serial_handle, "is_open", False))
+        return bool(thread_stopped and serial_closed and not self.is_connected and not self.is_streaming)
+
+    def disconnect(self) -> bool:
+        """Safely stops streaming, closes the serial port, and verifies port release (idempotent)."""
         self.stop_streaming()
-        if self.serial_handle and getattr(self.serial_handle, "is_open", False):
+        if self.serial_handle:
             try:
-                self.serial_handle.close()
-            except Exception:
-                pass
+                if getattr(self.serial_handle, "is_open", False):
+                    self.serial_handle.close()
+            except Exception as e:
+                print(f"[RealCSICollector] Error closing serial port: {e}")
+            finally:
+                if hasattr(self.serial_handle, "is_open"):
+                    try:
+                        self.serial_handle.is_open = False
+                    except Exception:
+                        pass
         self.is_connected = False
         self.diagnostic_state = "SERIAL_DISCONNECTED"
-        print("[RealCSICollector] Disconnected serial interface.")
+        released = self.is_port_released()
+        print(f"[RealCSICollector] Disconnected serial interface. Port released: {released}")
+        return released
 
     def start_streaming(self):
         """Starts background worker thread to ingest and process CSI packets."""
@@ -234,7 +286,7 @@ class RealCSICollector:
         print("[RealCSICollector] Background CSI acquisition loop started.")
 
     def stop_streaming(self):
-        """Signals the background acquisition thread to terminate."""
+        """Signals the background acquisition thread to terminate (idempotent)."""
         self.is_streaming = False
         self._stop_event.set()
         if self._worker_thread and self._worker_thread.is_alive():
@@ -288,12 +340,15 @@ class RealCSICollector:
                                 self.diagnostic_state = "SERIAL_BYTES_NO_VALID_RECORDS"
 
             except (serial.SerialException, OSError) as e:
-                print(f"[RealCSICollector] Serial stream error: {e}. Attempting auto-reconnect...")
+                print(f"[RealCSICollector] Serial stream error: {e}.")
                 self.is_connected = False
                 self.diagnostic_state = "SERIAL_DISCONNECTED"
                 self.termination_reason = f"serial_error: {e}"
-                time.sleep(1.0)
-                self.connect()
+                if self._stop_event.is_set():
+                    break
+                time.sleep(0.5)
+                if not self._stop_event.is_set():
+                    self.connect()
 
     def parse_raw_telemetry_line(self, line: str) -> Optional[Dict[str, Any]]:
         """
@@ -336,6 +391,7 @@ class RealCSICollector:
 
                 return {
                     "timestamp": time.time(),
+                    "host_monotonic_time": time.perf_counter(),
                     "sequence": self.packets_received + 1,
                     "mac": "ESP32-S3-NODE-01",
                     "rssi": rssi,
@@ -347,8 +403,57 @@ class RealCSICollector:
             except Exception:
                 return None
 
-        # Format B: CSI_DATA,<mac>,<rssi>,<noise>,<seq>,<num_sc>,amp_0:phase_0,...
-        if line.startswith("CSI_DATA"):
+        # Format B v2 (Extended Structured CSV with ESP-IDF Hardware Microsecond Timestamps & 802.11 MAC Sequence):
+        # CSI_DATA_V2,<mac>,<rssi>,<noise>,<seq>,<hw_timestamp_us>,<rx_seq>,<num_sc>,amp_0:phase_0,...
+        if line.startswith("CSI_DATA_V2"):
+            try:
+                self.detected_protocol = "structured_csi_data_v2"
+                content = line.strip()
+                tokens = content.split(",")
+                if len(tokens) < 8:
+                    return None
+
+                mac = tokens[1]
+                rssi = float(tokens[2])
+                noise = float(tokens[3])
+                seq = int(tokens[4])
+                hw_ts_us = int(tokens[5])
+                rx_seq = int(tokens[6])
+                num_sc = int(tokens[7])
+
+                remainder = ",".join(tokens[8:]).replace("[", "").replace("]", "")
+                subcarrier_tokens = [t.strip() for t in re.split(r"[,;]", remainder) if t.strip()]
+
+                amps = []
+                phases = []
+                for pair in subcarrier_tokens:
+                    if ":" in pair:
+                        a, p = pair.split(":", 1)
+                        amps.append(float(a))
+                        phases.append(float(p))
+
+                if len(amps) == 0:
+                    return None
+
+                return {
+                    "timestamp": time.time(),
+                    "host_monotonic_time": time.perf_counter(),
+                    "hw_timestamp_us": hw_ts_us,
+                    "rx_seq": rx_seq,
+                    "sequence": seq,
+                    "mac": mac,
+                    "rssi": rssi,
+                    "noise_floor": noise,
+                    "num_subcarriers": len(amps),
+                    "raw_amplitudes": amps,
+                    "raw_phases": phases
+                }
+            except Exception:
+                return None
+
+        # Format B (Historical Structured CSV stream):
+        # CSI_DATA,<mac>,<rssi>,<noise>,<seq>,<num_sc>,amp_0:phase_0,...
+        elif line.startswith("CSI_DATA"):
             try:
                 self.detected_protocol = "structured_csi_data"
                 content = line.strip()
@@ -378,6 +483,7 @@ class RealCSICollector:
 
                 return {
                     "timestamp": time.time(),
+                    "host_monotonic_time": time.perf_counter(),
                     "sequence": seq,
                     "mac": mac,
                     "rssi": rssi,
@@ -393,6 +499,58 @@ class RealCSICollector:
 
     def _process_parsed_frame(self, frame: Dict[str, Any]):
         """Processes a validated frame: aligns subcarriers to 56 HT20 and updates window buffer."""
+        # 1. Firmware Sequence Tracking (evaluated across all physical arrivals before filtering)
+        seq = frame.get("sequence")
+        if seq is not None:
+            if self.last_firmware_seq is not None:
+                if seq > self.last_firmware_seq:
+                    f_gap = seq - (self.last_firmware_seq + 1)
+                    if f_gap > 0:
+                        self.firmware_sequence_gaps += f_gap
+                        self.confirmed_transport_loss = self.firmware_sequence_gaps
+                        self.packets_lost = self.firmware_sequence_gaps
+                    self.last_firmware_seq = seq
+                elif seq < self.last_firmware_seq:
+                    # 32-bit unsigned wraparound check (e.g. 0xFFFFFFFF -> 0)
+                    if self.last_firmware_seq > 0xFFFF0000 and seq < 0x10000:
+                        f_gap = (seq + 0x100000000) - (self.last_firmware_seq + 1)
+                        if f_gap > 0:
+                            self.firmware_sequence_gaps += f_gap
+                            self.confirmed_transport_loss = self.firmware_sequence_gaps
+                            self.packets_lost = self.firmware_sequence_gaps
+                        self.last_firmware_seq = seq
+                    elif (self.last_firmware_seq - seq) > 1000 or (self.last_firmware_seq >= 100 and seq <= 10):
+                        # Genuine firmware reboot / counter restart
+                        self.counter_resets += 1
+                        self.last_firmware_seq = seq
+                    else:
+                        # Out-of-order packet arrival (jitter) without regressing high-water sequence
+                        self.out_of_order_packets += 1
+                else:
+                    # Duplicate sequence number (seq == last_firmware_seq)
+                    self.duplicate_packets += 1
+                    if self.detected_protocol != "raw_iq_stream":
+                        return
+            else:
+                self.last_firmware_seq = seq
+
+        # 2. Source MAC tracking & Target-Source Filtering (Phase 52)
+        source_mac = frame.get("mac", "")
+        if source_mac:
+            source_mac_norm = source_mac.upper()
+            self.source_mac_counts[source_mac_norm] = self.source_mac_counts.get(source_mac_norm, 0) + 1
+        else:
+            source_mac_norm = ""
+
+        if self.filter_by_mac:
+            # Fail closed if required metadata is missing
+            if not source_mac_norm or not self.target_mac:
+                self.parse_errors += 1
+                return
+            if source_mac_norm != self.target_mac:
+                self.filtered_non_target_packets += 1
+                return
+
         now = frame["timestamp"]
         dt = max(0.001, now - self.last_packet_time)
         self.last_packet_time = now
@@ -406,13 +564,24 @@ class RealCSICollector:
         self.current_noise = frame["noise_floor"]
         self.packet_rate_hz = round(0.9 * self.packet_rate_hz + 0.1 * (1.0 / dt), 1)
 
-        # Packet loss / sequence gap tracking
-        seq = frame["sequence"]
-        if self.last_sequence is not None:
-            gap = seq - (self.last_sequence + 1)
-            if gap > 0:
-                self.packets_lost += gap
-        self.last_sequence = seq
+        # 3. Target sequence gap tracking & loss reconciliation
+        if seq is not None:
+            if self.last_sequence is not None:
+                if seq > self.last_sequence:
+                    t_gap = seq - (self.last_sequence + 1)
+                    if t_gap > 0:
+                        self.target_sequence_gaps += t_gap
+                elif seq < self.last_sequence:
+                    if self.last_sequence > 0xFFFF0000 and seq < 0x10000:
+                        t_gap = (seq + 0x100000000) - (self.last_sequence + 1)
+                        if t_gap > 0:
+                            self.target_sequence_gaps += t_gap
+            self.last_sequence = seq
+
+        # packets_lost and confirmed_transport_loss mirror observed firmware sequence gaps
+        # (loss layer cannot be isolated to transport alone without physical bus analysis)
+        self.confirmed_transport_loss = self.firmware_sequence_gaps
+        self.packets_lost = self.firmware_sequence_gaps
 
         # Align subcarriers to standardized TARGET_SUBCARRIERS (56)
         raw_amps = np.array(frame["raw_amplitudes"], dtype=np.float32)
@@ -436,12 +605,19 @@ class RealCSICollector:
         with self._window_lock:
             self.raw_frame_buffer.append(aligned_amp)
             self.phase_frame_buffer.append(aligned_phase)
+            self.timestamp_buffer.append(now)
+            self.monotonic_buffer.append(frame.get("host_monotonic_time", now))
+            self.sequence_buffer.append(seq)
+            self.source_mac_buffer.append(source_mac)
+            self.hw_timestamp_buffer.append(frame.get("hw_timestamp_us"))
 
         # Recording handling
         if self.is_recording:
             rec_frame = {
                 "timestamp": now,
+                "host_monotonic_time": frame.get("host_monotonic_time", now),
                 "sequence": seq,
+                "mac": source_mac,
                 "rssi": frame["rssi"],
                 "noise": frame["noise_floor"],
                 "raw_amplitudes": raw_amps.tolist(),
@@ -451,13 +627,68 @@ class RealCSICollector:
                 "phases": aligned_phase.tolist(),
                 "num_subcarriers": len(aligned_amp)
             }
+            if "hw_timestamp_us" in frame:
+                rec_frame["hw_timestamp_us"] = frame["hw_timestamp_us"]
+            if "rx_seq" in frame:
+                rec_frame["rx_seq"] = frame["rx_seq"]
+
+            if len(raw_amps) == 64:
+                comp = self.adapter.separate_physical_and_null_components(raw_amps)
+                rec_frame["physical_active_amplitudes"] = comp["active_52"].tolist()
+                rec_frame["physical_null_amplitudes"] = comp["null_12"].tolist()
+                rec_frame["physical_active_subcarrier_count"] = 52
+                rec_frame["physical_null_subcarrier_count"] = 12
             self.recorded_frames.append(rec_frame)
 
-    def get_latest_window(self) -> Optional[Tuple[np.ndarray, np.ndarray]]:
+    def get_stream_diagnostics(self) -> Dict[str, Any]:
+        """
+        Returns bounded, non-persistent diagnostic telemetry for stream health,
+        source MAC counts, sequence continuity, packet rates, and parser errors.
+        """
+        return {
+            "diagnostic_state": self.diagnostic_state,
+            "is_connected": self.is_connected,
+            "is_streaming": self.is_streaming,
+            "port": self.port,
+            "baud_rate": self.baud_rate,
+            "target_mac": self.target_mac,
+            "filter_by_mac": self.filter_by_mac,
+            "packets_received": self.packets_received,
+            "packets_lost": self.packets_lost,
+            "confirmed_transport_loss": self.confirmed_transport_loss,
+            "firmware_sequence_gaps": self.firmware_sequence_gaps,
+            "target_sequence_gaps": self.target_sequence_gaps,
+            "counter_resets": self.counter_resets,
+            "out_of_order_packets": self.out_of_order_packets,
+            "duplicate_packets": self.duplicate_packets,
+            "csi_packets_parsed": self.csi_packets_parsed,
+            "parse_errors": self.parse_errors,
+            "filtered_non_target_packets": self.filtered_non_target_packets,
+            "source_mac_counts": dict(self.source_mac_counts),
+            "packet_rate_hz": self.packet_rate_hz,
+            "current_rssi": self.current_rssi,
+            "current_noise": self.current_noise,
+            "raw_csi_dimensions": self.raw_csi_dimensions,
+            "port_released": self.is_port_released(),
+        }
+
+    def get_latest_window(
+        self,
+        return_metadata: bool = False
+    ) -> Optional[Union[Tuple[np.ndarray, np.ndarray], Tuple[np.ndarray, np.ndarray, Dict[str, Any]]]]:
         """
         Retrieves the latest complete temporal window [50, 56] for CSIFormer inference.
+
+        Args:
+            return_metadata: If True, returns a 3-tuple (raw_win, phase_win, metadata_dict)
+                             containing temporal metadata (timestamps, monotonic times,
+                             empirical rate, interval stats, sequence numbers).
+                             If False (default), returns standard 2-tuple (raw_win, phase_win)
+                             for strict backward compatibility with existing consumers.
+
         Returns:
-            Tuple of (raw_amplitude_array [50, 56], phase_array [50, 56]) if buffer is full,
+            Tuple of (raw_win, phase_win) if buffer is full and return_metadata is False;
+            Tuple of (raw_win, phase_win, meta_dict) if return_metadata is True;
             else None.
         """
         with self._window_lock:
@@ -465,7 +696,70 @@ class RealCSICollector:
                 return None
             raw_win = np.stack(list(self.raw_frame_buffer), axis=0)
             phase_win = np.stack(list(self.phase_frame_buffer), axis=0)
-            return raw_win, phase_win
+            if not return_metadata:
+                return raw_win, phase_win
+
+            monotonic_arr = np.array(list(self.monotonic_buffer), dtype=np.float64)
+            wall_arr = np.array(list(self.timestamp_buffer), dtype=np.float64)
+            seq_list = list(self.sequence_buffer)
+            diffs_m = np.diff(monotonic_arr) if len(monotonic_arr) > 1 else np.array([])
+            span_m = float(monotonic_arr[-1] - monotonic_arr[0]) if len(monotonic_arr) > 1 else 0.0
+            empirical_rate = (len(monotonic_arr) - 1) / span_m if span_m > 0 else 0.0
+
+            has_hw = (len(self.hw_timestamp_buffer) == len(monotonic_arr)) and all(x is not None for x in self.hw_timestamp_buffer)
+            meta_dict = {
+                "timestamps": wall_arr,
+                "monotonic_timestamps": monotonic_arr,
+                "sequences": seq_list,
+                "source_macs": list(self.source_mac_buffer),
+                "span_seconds": round(span_m, 6),
+                "empirical_rate_hz": round(empirical_rate, 2),
+                "mean_interval_ms": round(float(np.mean(diffs_m) * 1000.0), 3) if len(diffs_m) > 0 else 0.0,
+                "max_interval_ms": round(float(np.max(diffs_m) * 1000.0), 3) if len(diffs_m) > 0 else 0.0,
+                "min_interval_ms": round(float(np.min(diffs_m) * 1000.0), 3) if len(diffs_m) > 0 else 0.0,
+                "std_interval_ms": round(float(np.std(diffs_m) * 1000.0), 3) if len(diffs_m) > 0 else 0.0,
+                "has_hw_timestamps": has_hw,
+                "hw_timestamps_us": list(self.hw_timestamp_buffer) if has_hw else None,
+            }
+            return raw_win, phase_win, meta_dict
+
+    def get_window_timing_diagnostics(self) -> Dict[str, Any]:
+        """
+        Returns timing and arrival rate telemetry for the frames currently in the buffer,
+        even if the buffer has not yet reached WINDOW_SIZE.
+        """
+        with self._window_lock:
+            n = len(self.monotonic_buffer)
+            if n < 2:
+                return {
+                    "buffered_frames": n,
+                    "span_seconds": 0.0,
+                    "empirical_rate_hz": 0.0,
+                    "mean_interval_ms": 0.0,
+                    "std_interval_ms": 0.0,
+                    "cv_interval": 0.0,
+                    "is_full": n >= self.WINDOW_SIZE,
+                }
+            mono = np.array(list(self.monotonic_buffer), dtype=np.float64)
+            diffs = np.diff(mono)
+            span = float(mono[-1] - mono[0])
+            rate = (n - 1) / span if span > 0 else 0.0
+            mean_dt = float(np.mean(diffs))
+            std_dt = float(np.std(diffs))
+            cv = (std_dt / mean_dt) if mean_dt > 0 else 0.0
+
+            return {
+                "buffered_frames": n,
+                "span_seconds": round(span, 6),
+                "empirical_rate_hz": round(rate, 2),
+                "mean_interval_ms": round(mean_dt * 1000.0, 3),
+                "std_interval_ms": round(std_dt * 1000.0, 3),
+                "cv_interval": round(cv, 4),
+                "min_interval_ms": round(float(np.min(diffs) * 1000.0), 3),
+                "max_interval_ms": round(float(np.max(diffs) * 1000.0), 3),
+                "is_full": n >= self.WINDOW_SIZE,
+                "has_hw_timestamps": (len(self.hw_timestamp_buffer) == n) and all(x is not None for x in self.hw_timestamp_buffer),
+            }
 
     def get_diagnostic_state(self) -> str:
         """Computes current real-time diagnostic state based on hardware and packet stream telemetry."""
@@ -495,8 +789,9 @@ class RealCSICollector:
 
     def get_stream_health(self) -> Dict[str, Any]:
         """Returns comprehensive real-time streaming health telemetry."""
-        total = self.packets_received + self.packets_lost
-        loss_pct = round((self.packets_lost / total * 100), 2) if total > 0 else 0.0
+        total_delivered = self.packets_received + self.filtered_non_target_packets
+        total_expected = total_delivered + self.firmware_sequence_gaps
+        loss_pct = round((self.firmware_sequence_gaps / total_expected * 100), 2) if total_expected > 0 else 0.0
         state = self.get_diagnostic_state()
 
         return {
@@ -511,9 +806,16 @@ class RealCSICollector:
             "total_records_detected": self.total_records_detected,
             "csi_packets_parsed": self.csi_packets_parsed,
             "parse_errors": self.parse_errors,
+            "filtered_non_target_packets": self.filtered_non_target_packets,
             "raw_csi_dimensions": self.raw_csi_dimensions,
             "packets_received": self.packets_received,
             "packets_lost": self.packets_lost,
+            "confirmed_transport_loss": self.confirmed_transport_loss,
+            "firmware_sequence_gaps": self.firmware_sequence_gaps,
+            "target_sequence_gaps": self.target_sequence_gaps,
+            "counter_resets": self.counter_resets,
+            "out_of_order_packets": self.out_of_order_packets,
+            "duplicate_packets": self.duplicate_packets,
             "packet_loss_pct": loss_pct,
             "packet_rate_hz": self.packet_rate_hz,
             "rssi_dbm": self.current_rssi,
@@ -564,9 +866,11 @@ class RealCSICollector:
 
         self.is_recording = True
         self.recorded_frames = []
+        self._last_saved_session_result = None
         clean_name = session_name.replace(" ", "_")
         self.current_session_id = f"phase16_{clean_name}_{int(time.time())}"
         self._rec_start_lost = self.packets_lost
+        self._rec_start_fw_gaps = self.firmware_sequence_gaps
         self._rec_start_received = self.packets_received
         self._rec_start_time = time.time()
 
@@ -607,8 +911,10 @@ class RealCSICollector:
         }
 
     def stop_session_recording(self) -> Dict[str, Any]:
-        """Stops recording and persists JSON and CSV artifacts to disk."""
+        """Stops recording and persists JSON and CSV artifacts to disk with atomic write."""
         if not self.is_recording:
+            if hasattr(self, "_last_saved_session_result") and self._last_saved_session_result:
+                return self._last_saved_session_result
             return {"status": "not_recording"}
 
         self.is_recording = False
@@ -616,13 +922,26 @@ class RealCSICollector:
         session_id = self.current_session_id or f"session_{int(time.time())}"
         dur_s = max(0.001, time.time() - getattr(self, "_rec_start_time", time.time()))
         pkts_lost = max(0, self.packets_lost - getattr(self, "_rec_start_lost", 0))
+        fw_gaps = max(0, self.firmware_sequence_gaps - getattr(self, "_rec_start_fw_gaps", 0))
+
+        # Compute standardized sampling rate metrics
+        timestamps = [f["timestamp"] for f in self.recorded_frames if "timestamp" in f]
+        rate_stats = compute_session_sampling_rate(timestamps, wall_duration_s=dur_s)
 
         # Update metadata with packet health and actual duration
         self.session_metadata["duration_seconds"] = round(dur_s, 2)
+        self.session_metadata["timestamp_span_seconds"] = round(rate_stats["timestamp_span_s"], 4)
         self.session_metadata["packets_received"] = frame_count
-        self.session_metadata["packets_lost"] = pkts_lost
-        self.session_metadata["loss_rate"] = round(pkts_lost / max(1, frame_count + pkts_lost), 4)
-        self.session_metadata["mean_sampling_rate_hz"] = round(frame_count / dur_s, 2)
+        self.session_metadata["firmware_sequence_gaps"] = fw_gaps
+        self.session_metadata["packets_lost"] = pkts_lost  # legacy alias
+        self.session_metadata["confirmed_transport_loss"] = fw_gaps  # legacy alias
+        self.session_metadata["loss_rate"] = round(fw_gaps / max(1, frame_count + fw_gaps), 4)
+        self.session_metadata["mean_sampling_rate_hz"] = (
+            round(rate_stats["empirical_sampling_rate_hz"], 2)
+            if rate_stats["valid"]
+            else round(frame_count / dur_s, 2)
+        )
+        self.session_metadata["wall_clock_rate_hz"] = round(frame_count / dur_s, 2)
 
         # 1. Prevent accidental overwriting of previously collected sessions
         base_id = session_id
@@ -639,29 +958,80 @@ class RealCSICollector:
             "frame_count": frame_count,
             "frames": self.recorded_frames
         }
-        with open(json_path, "w", encoding="utf-8") as f:
-            json.dump(full_payload, f, indent=2)
 
-        # 2. Save CSV summary
+        # Atomic JSON persistence
+        tmp_json = self.data_dir / f"{session_id}.json.tmp"
+        try:
+            with open(tmp_json, "w", encoding="utf-8") as f:
+                json.dump(full_payload, f, indent=2)
+                f.flush()
+                try:
+                    os.fsync(f.fileno())
+                except OSError:
+                    pass
+            os.replace(tmp_json, json_path)
+        except Exception as e:
+            if tmp_json.exists():
+                try:
+                    tmp_json.unlink()
+                except OSError:
+                    pass
+            print(f"[RealCSICollector] JSON write error for {session_id}: {e}")
+            res = {
+                "status": "error",
+                "error": f"JSON write failed: {e}",
+                "session_id": session_id,
+                "frame_count": frame_count
+            }
+            self._last_saved_session_result = res
+            return res
+
+        # Atomic CSV summary persistence
         csv_path = self.data_dir / f"{session_id}.csv"
-        with open(csv_path, "w", newline="", encoding="utf-8") as f:
-            writer = csv.writer(f)
-            header = ["timestamp", "sequence", "rssi", "noise"]
-            header += [f"amp_{i}" for i in range(self.TARGET_SUBCARRIERS)]
-            writer.writerow(header)
-            for rf in self.recorded_frames:
-                row = [rf["timestamp"], rf["sequence"], rf["rssi"], rf["noise"]]
-                row.extend(rf["amplitudes"])
-                writer.writerow(row)
+        tmp_csv = self.data_dir / f"{session_id}.csv.tmp"
+        try:
+            with open(tmp_csv, "w", newline="", encoding="utf-8") as f:
+                writer = csv.writer(f)
+                header = ["timestamp", "sequence", "rssi", "noise"]
+                header += [f"amp_{i}" for i in range(self.TARGET_SUBCARRIERS)]
+                writer.writerow(header)
+                for rf in self.recorded_frames:
+                    row = [rf["timestamp"], rf["sequence"], rf["rssi"], rf["noise"]]
+                    row.extend(rf.get("amplitudes", []))
+                    writer.writerow(row)
+                f.flush()
+                try:
+                    os.fsync(f.fileno())
+                except OSError:
+                    pass
+            os.replace(tmp_csv, csv_path)
+        except Exception as e:
+            if tmp_csv.exists():
+                try:
+                    tmp_csv.unlink()
+                except OSError:
+                    pass
+            print(f"[RealCSICollector] CSV write error for {session_id}: {e}")
+            res = {
+                "status": "error",
+                "error": f"CSV write failed: {e}",
+                "session_id": session_id,
+                "frame_count": frame_count,
+                "json_path": str(json_path)
+            }
+            self._last_saved_session_result = res
+            return res
 
         print(f"[RealCSICollector] Saved recording session: {json_path} ({frame_count} frames)")
-        return {
+        res = {
             "status": "recording_saved",
             "session_id": session_id,
             "frame_count": frame_count,
             "json_path": str(json_path),
             "csv_path": str(csv_path)
         }
+        self._last_saved_session_result = res
+        return res
 
     # =========================================================================
     # High-Fidelity Simulation & Recorded Replay Pathway

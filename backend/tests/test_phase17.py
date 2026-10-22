@@ -318,9 +318,19 @@ def test_loso_split_zero_leakage():
 # =============================================================================
 # 11. Rejection of 3-Way Split with N < 3 Participants
 # =============================================================================
-def test_insufficient_participants_error_on_3way_split():
+def test_insufficient_participants_error_on_3way_split(tmp_path):
     """Verify that requesting a 3-way split on a 2-participant dataset raises InsufficientParticipantsError."""
-    generator = ParticipantIndependentSplitGenerator(MANIFEST_PATH)
+    fixture_manifest = tmp_path / "two_participant_manifest.json"
+    manifest_data = {
+        "dataset_name": "Test_2Participant_Fixture",
+        "sessions": [
+            {"session_id": "s1", "participant_id": "Participant_01", "activity_label": "walk", "packet_count": 50},
+            {"session_id": "s2", "participant_id": "Participant_02", "activity_label": "walk", "packet_count": 50}
+        ]
+    }
+    fixture_manifest.write_text(json.dumps(manifest_data), encoding="utf-8")
+
+    generator = ParticipantIndependentSplitGenerator(fixture_manifest)
     assert len(generator.participants) == 2
 
     with pytest.raises(InsufficientParticipantsError) as exc_info:

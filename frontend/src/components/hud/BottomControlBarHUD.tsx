@@ -6,15 +6,23 @@ interface BottomControlBarHUDProps {
   cameraPreset: 'isometric' | 'topdown' | 'sensoreye';
   setCameraPreset: (preset: 'isometric' | 'topdown' | 'sensoreye') => void;
   onOpenRecorder?: () => void;
+  currentHardwareMode?: string;
 }
 
 export const BottomControlBarHUD: React.FC<BottomControlBarHUDProps> = ({
   cameraPreset,
   setCameraPreset,
-  onOpenRecorder
+  onOpenRecorder,
+  currentHardwareMode = 'simulated',
 }) => {
   const [activeTab, setActiveTab] = useState<string>('localization');
-  const [hardwareMode, setHardwareMode] = useState<string>('simulated');
+  const [hardwareMode, setHardwareMode] = useState<string>(currentHardwareMode);
+
+  React.useEffect(() => {
+    if (currentHardwareMode) {
+      setHardwareMode(currentHardwareMode);
+    }
+  }, [currentHardwareMode]);
 
   const tabs = [
     { id: 'presence', label: 'Presence Detection', icon: UserCheck },
@@ -75,6 +83,7 @@ export const BottomControlBarHUD: React.FC<BottomControlBarHUDProps> = ({
                 ? 'bg-cyan-950 border border-cyan-500 text-cyan-300'
                 : 'text-slate-400 hover:text-slate-200'
             }`}
+            title="Physics Spatial Simulator"
           >
             <Cpu className="w-3 h-3 text-cyan-400" />
             <span>Sim</span>
@@ -83,12 +92,25 @@ export const BottomControlBarHUD: React.FC<BottomControlBarHUDProps> = ({
             onClick={() => handleSelectHardwareMode('esp32_serial')}
             className={`flex items-center space-x-1 px-2.5 py-1.5 rounded-lg font-bold transition-all ${
               hardwareMode === 'esp32_serial'
-                ? 'bg-cyan-950 border border-cyan-500 text-cyan-300'
+                ? 'bg-emerald-950 border border-emerald-500 text-emerald-300 shadow-md shadow-emerald-500/20'
                 : 'text-slate-400 hover:text-slate-200'
             }`}
+            title="ESP32-S3 Live USB Serial (COM5)"
           >
-            <Usb className="w-3 h-3 text-cyan-400" />
-            <span>USB</span>
+            <Usb className="w-3 h-3 text-emerald-400" />
+            <span>USB (COM5)</span>
+          </button>
+          <button
+            onClick={() => handleSelectHardwareMode('recorded_replay')}
+            className={`flex items-center space-x-1 px-2.5 py-1.5 rounded-lg font-bold transition-all ${
+              hardwareMode === 'recorded_replay'
+                ? 'bg-amber-950 border border-amber-500 text-amber-300 shadow-md shadow-amber-500/20'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+            title="Replay Real CSI Dataset (30 Hz)"
+          >
+            <Disc className="w-3 h-3 text-amber-400" />
+            <span>Replay (Real)</span>
           </button>
           <button
             onClick={() => handleSelectHardwareMode('esp32_udp')}
@@ -97,6 +119,7 @@ export const BottomControlBarHUD: React.FC<BottomControlBarHUDProps> = ({
                 ? 'bg-cyan-950 border border-cyan-500 text-cyan-300'
                 : 'text-slate-400 hover:text-slate-200'
             }`}
+            title="ESP32 UDP Broadcast (Port 5555)"
           >
             <Wifi className="w-3 h-3 text-cyan-400" />
             <span>UDP</span>

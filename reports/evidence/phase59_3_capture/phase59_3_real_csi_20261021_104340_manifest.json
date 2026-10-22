@@ -1,0 +1,35 @@
+{
+  "session_id": "phase59_3_real_csi_20261021_104340",
+  "target_mac": "98:BA:5F:EF:28:26",
+  "timing": {
+    "start_wall": 1792579420.1231031,
+    "stop_wall": 1792579450.1250787,
+    "start_monotonic": 21473.9650224,
+    "stop_monotonic": 21503.9677462,
+    "actual_duration_s": 30.0027
+  },
+  "counts": {
+    "total_lines": 40,
+    "candidate_lines": 12,
+    "valid_parsed_frames": 3,
+    "target_frames": 1,
+    "non_target_frames": 2,
+    "parse_errors": 9
+  },
+  "rates": {
+    "target_rate_hz": 0.0333,
+    "aggregate_rate_hz": 0.1
+  },
+  "source_mac_distribution": {
+    "18:CC:88:7E:74:71": 2,
+    "98:BA:5F:EF:28:26": 1
+  },
+  "artifacts": {
+    "session_json": "C:\\Users\\saifu\\Desktop\\4-1 project\\data\\real_capture_phase59_3\\phase59_3_real_csi_20261021_104340.json",
+    "session_json_md5": "3abb98af810aed89691e6284e975a59e",
+    "session_csv": "C:\\Users\\saifu\\Desktop\\4-1 project\\data\\real_capture_phase59_3\\phase59_3_real_csi_20261021_104340.csv",
+    "session_csv_md5": "8cda5817df5a79d3d6705fd192f1e362",
+    "jsonl_evidence": "C:\\Users\\saifu\\Desktop\\4-1 project\\reports\\evidence\\phase59_3_capture\\phase59_3_real_csi_20261021_104340_records.jsonl",
+    "jsonl_evidence_md5": "898ece936cfdf9b91e0816ed5e6a7d93"
+  }
+}

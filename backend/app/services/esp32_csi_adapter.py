@@ -37,6 +37,52 @@ class ESP32CSIAdapter:
         np.arange(2, 59)
     ])
 
+    # IEEE 802.11n HT20 64-bin FFT subcarrier mappings (ESP32-S3 baseband FFT)
+    HT20_64_TOTAL_BINS = 64
+    # 52 physical active data/pilot subcarriers in 64-bin FFT ordering:
+    # Bins 1..26 (positive frequencies) and Bins 38..63 (negative frequencies)
+    HT20_64_ACTIVE_DATA_INDICES = np.concatenate([np.arange(1, 27), np.arange(38, 64)])
+    # 12 null/guard positions: DC carrier (bin 0) + 11 guard carriers (bins 27..37)
+    HT20_64_NULL_INDICES = np.concatenate([[0], np.arange(27, 38)])
+
+    @classmethod
+    def get_ht20_64_carrier_masks(cls) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Returns boolean masks (active_mask, null_mask) of length 64
+        delineating the 52 active physical subcarriers from the 12 DC/guard nulls.
+        """
+        active_mask = np.zeros(cls.HT20_64_TOTAL_BINS, dtype=bool)
+        active_mask[cls.HT20_64_ACTIVE_DATA_INDICES] = True
+        null_mask = ~active_mask
+        return active_mask, null_mask
+
+    @classmethod
+    def extract_ht20_52_active_subcarriers(cls, csi_64: np.ndarray) -> np.ndarray:
+        """
+        Extracts the 52 physically active OFDM data subcarriers from the 64-bin ESP32-S3 spectrum,
+        preserving exact un-interpolated measurements and stripping DC and guard nulls.
+        :param csi_64: Array with shape (..., 64)
+        :return: Array with shape (..., 52)
+        """
+        if csi_64.shape[-1] != cls.HT20_64_TOTAL_BINS:
+            raise ValueError(f"Expected 64 subcarriers along the last axis, got shape {csi_64.shape}")
+        return csi_64[..., cls.HT20_64_ACTIVE_DATA_INDICES]
+
+    @classmethod
+    def separate_physical_and_null_components(cls, csi_64: np.ndarray) -> Dict[str, np.ndarray]:
+        """
+        Separates a 64-bin physical CSI frame into active components (52 bins)
+        and null components (12 bins: 1 DC + 11 guard band tones).
+        """
+        if csi_64.shape[-1] != cls.HT20_64_TOTAL_BINS:
+            raise ValueError(f"Expected 64 subcarriers along the last axis, got shape {csi_64.shape}")
+        return {
+            "active_52": csi_64[..., cls.HT20_64_ACTIVE_DATA_INDICES],
+            "null_12": csi_64[..., cls.HT20_64_NULL_INDICES],
+            "active_indices": cls.HT20_64_ACTIVE_DATA_INDICES.copy(),
+            "null_indices": cls.HT20_64_NULL_INDICES.copy(),
+        }
+
     def __init__(self, target_mode: str = "HT20", target_rate_hz: float = 30.0):
         """
         Initialize the adapter.

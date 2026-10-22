@@ -36,6 +36,12 @@ export interface ActivityPrediction {
   probabilities: Record<string, number>;
   anomaly_detected: boolean;
   anomaly_type?: string;
+  is_unvalidated?: boolean;
+  latency_ms?: number;
+  buffering?: boolean;
+  buffered_frames?: number;
+  required_frames?: number;
+  gate_weights?: { raw: number; doppler: number };
 }
 
 export interface NodeInfo {
@@ -79,11 +85,15 @@ export interface SystemMetrics {
 export interface SpatialTelemetryFrame {
   type: 'csi_spatial_telemetry_frame';
   timestamp: number;
+  data_source?: 'LIVE HARDWARE' | 'RECORDED REPLAY' | 'SIMULATION' | string;
+  is_real_measurement?: boolean;
   target: TargetPosition3D;
   point_cloud: CSIPoint3D[];
   frames: Record<string, CSIPacketFrame>;
   activity: ActivityPrediction;
   nodes: NodeInfo[];
+  hardware?: any;
+  subcarriers?: any;
 }
 
 export type RenderingMode = 'production' | 'research' | 'debug';

@@ -32,6 +32,8 @@ interface LeftIntelligenceRailProps {
     observations?: string[];
   } | null;
   onSelectActivity?: (activity: string) => void;
+  dataSource?: string;
+  isRealMeasurement?: boolean;
 }
 
 export const LeftIntelligenceRail: React.FC<LeftIntelligenceRailProps> = ({
@@ -39,9 +41,12 @@ export const LeftIntelligenceRail: React.FC<LeftIntelligenceRailProps> = ({
   digitalTwin,
   insights,
   onSelectActivity,
+  dataSource = 'SIMULATION',
+  isRealMeasurement = false,
 }) => {
   const currentActivity = activity?.activity || 'Walking';
-  const confidence = Math.round((activity?.confidence || 0.985) * 100);
+  const confidence = activity?.buffering ? 0 : Math.round((activity?.confidence || 0) * 100);
+  const latencyMs = activity?.latency_ms ? `${activity.latency_ms.toFixed(1)} ms` : (isRealMeasurement ? '-- ms' : '8.2 ms (sim)');
 
   const classes = [
     { label: 'Empty Room', key: 'Empty Room' },
@@ -54,16 +59,17 @@ export const LeftIntelligenceRail: React.FC<LeftIntelligenceRailProps> = ({
     { label: 'Multiple Persons', key: 'Multiple Persons' },
   ];
 
-  const zones = digitalTwin?.zones || [
+  // In real measurement mode, zone data is unavailable (single node cannot localize)
+  const zones = isRealMeasurement ? [] : (digitalTwin?.zones || [
     { name: 'Workspace Area', current_occupancy: 1, entry_count: 12, exit_count: 11, avg_dwell_seconds: 45.2, utilization_pct: 88.5 },
     { name: 'Meeting Area', current_occupancy: 0, entry_count: 4, exit_count: 4, avg_dwell_seconds: 22.0, utilization_pct: 35.0 },
     { name: 'Entrance Zone', current_occupancy: 0, entry_count: 14, exit_count: 14, avg_dwell_seconds: 8.5, utilization_pct: 42.0 },
     { name: 'Waiting Area', current_occupancy: 0, entry_count: 3, exit_count: 3, avg_dwell_seconds: 18.0, utilization_pct: 25.0 },
     { name: 'Restricted Area', is_restricted: true, current_occupancy: 0, entry_count: 0, exit_count: 0, avg_dwell_seconds: 0.0, utilization_pct: 0.0 },
     { name: 'Exit Zone', current_occupancy: 0, entry_count: 14, exit_count: 14, avg_dwell_seconds: 6.0, utilization_pct: 18.0 },
-  ];
+  ]);
 
-  const spaceScore = insights?.space_utilization_score_pct ?? 82.5;
+  const spaceScore = isRealMeasurement ? 0 : (insights?.space_utilization_score_pct ?? 82.5);
 
   return (
     <div className="w-80 h-full bg-[#081120]/95 border-r border-[#00F0FF]/20 p-4 font-mono text-xs text-[#E2F8FF] space-y-4 overflow-y-auto pointer-events-auto shadow-2xl flex flex-col justify-between">
@@ -75,19 +81,34 @@ export const LeftIntelligenceRail: React.FC<LeftIntelligenceRailProps> = ({
               <Brain className="w-4 h-4" />
               <h3 className="text-xs font-black uppercase tracking-widest text-[#E2F8FF]">Activity Intelligence</h3>
             </div>
-            <span className="text-[9px] px-2 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-700 font-bold">
-              30 Hz CLASSIFIER
+            <span className={`text-[9px] px-2 py-0.5 rounded font-bold border ${
+              activity?.is_unvalidated
+                ? 'bg-amber-950 text-amber-300 border-amber-600'
+                : 'bg-emerald-950 text-emerald-300 border-emerald-700'
+            }`}>
+              {activity?.is_unvalidated ? 'UNVALIDATED MODEL' : '30 Hz CLASSIFIER'}
             </span>
           </div>
 
           <div className="p-3 rounded-xl bg-[#020617] border border-[#00F0FF]/30 flex items-center justify-between">
             <div>
-              <span className="text-[9px] text-[#94A3B8] uppercase tracking-widest block font-bold">Target State</span>
-              <span className="text-base font-extrabold text-[#00F0FF]">{currentActivity}</span>
+              <span className="text-[9px] text-[#94A3B8] uppercase tracking-widest block font-bold">
+                {activity?.buffering ? 'BUFFER STATUS' : 'TARGET STATE'}
+              </span>
+              <span className={`text-sm font-extrabold ${activity?.buffering ? 'text-amber-400' : 'text-[#00F0FF]'}`}>
+                {currentActivity}
+              </span>
+              {activity?.is_unvalidated && (
+                <span className="text-[8px] text-amber-400/80 block mt-0.5">
+                  Unvalidated inference (no live ground truth)
+                </span>
+              )}
             </div>
             <div className="text-right">
               <span className="text-[9px] text-[#94A3B8] uppercase tracking-widest block font-bold">Confidence</span>
-              <span className="text-sm font-black text-emerald-400">{confidence}%</span>
+              <span className="text-sm font-black text-emerald-400">
+                {activity?.buffering ? '--%' : `${confidence}%`}
+              </span>
             </div>
           </div>
 
@@ -97,11 +118,17 @@ export const LeftIntelligenceRail: React.FC<LeftIntelligenceRailProps> = ({
               return (
                 <button
                   key={cls.key}
-                  onClick={() => onSelectActivity && onSelectActivity(cls.key)}
+                  onClick={() => !isRealMeasurement && onSelectActivity && onSelectActivity(cls.key)}
+                  disabled={isRealMeasurement}
+                  title={isRealMeasurement ? 'Activity buttons control simulation only' : undefined}
                   className={`p-2 rounded-lg text-left font-bold transition-all border text-[10px] ${
-                    isActive
-                      ? 'bg-[#00F0FF] text-slate-950 border-[#00F0FF] shadow-md shadow-[#00F0FF]/30'
-                      : 'bg-[#020617] text-[#94A3B8] border-slate-800 hover:border-[#00F0FF]/40 hover:text-[#E2F8FF]'
+                    isRealMeasurement
+                      ? (isActive
+                        ? 'bg-amber-950 text-amber-300 border-amber-600 cursor-not-allowed'
+                        : 'bg-[#020617] text-slate-600 border-slate-800 cursor-not-allowed opacity-50')
+                      : (isActive
+                        ? 'bg-[#00F0FF] text-slate-950 border-[#00F0FF] shadow-md shadow-[#00F0FF]/30'
+                        : 'bg-[#020617] text-[#94A3B8] border-slate-800 hover:border-[#00F0FF]/40 hover:text-[#E2F8FF]')
                   }`}
                 >
                   {cls.label}
@@ -120,50 +147,63 @@ export const LeftIntelligenceRail: React.FC<LeftIntelligenceRailProps> = ({
             </div>
             <span className="text-[9px] text-emerald-400 font-bold flex items-center space-x-1">
               <Zap className="w-3 h-3 text-emerald-400" />
-              <span>PYTORCH GPU</span>
+              <span>{isRealMeasurement ? 'DUAL-BRANCH PYTORCH' : 'PYTORCH SIM'}</span>
             </span>
           </div>
 
           <div className="grid grid-cols-2 gap-2 text-[10px]">
             <div className="p-2.5 rounded-xl bg-[#020617] border border-slate-800">
-              <span className="text-[8px] text-[#94A3B8] uppercase tracking-widest block font-bold">Model Accuracy</span>
-              <span className="text-sm font-black text-emerald-400">99% F1</span>
+              <span className="text-[8px] text-[#94A3B8] uppercase tracking-widest block font-bold">Accuracy Status</span>
+              <span className={`text-xs font-black ${isRealMeasurement ? 'text-amber-400' : 'text-slate-300'}`}>
+                {isRealMeasurement ? `${dataSource} (Unvalidated)` : 'Simulated Model'}
+              </span>
+              <span className="text-[7.5px] text-[#94A3B8] block mt-0.5">
+                {isRealMeasurement ? 'No live ground truth' : 'Synthetic patterns'}
+              </span>
             </div>
             <div className="p-2.5 rounded-xl bg-[#020617] border border-slate-800">
               <span className="text-[8px] text-[#94A3B8] uppercase tracking-widest block font-bold">Inference Latency</span>
-              <span className="text-sm font-black text-[#00F0FF]">8.2 ms</span>
+              <span className="text-xs font-black text-[#00F0FF]">{latencyMs}</span>
+              <span className="text-[7.5px] text-[#94A3B8] block mt-0.5">Dual-Branch GPU/CPU</span>
             </div>
           </div>
         </div>
 
-        {/* Section 3: Digital Twin Summary & 6 Semantic Zones */}
+        {/* Section 3: Digital Twin Summary & Semantic Zones */}
         <div className="space-y-2 pt-2 border-t border-slate-800">
           <div className="flex items-center justify-between pb-1 border-b border-slate-800">
             <div className="flex items-center space-x-2 text-[#00F0FF]">
               <Building2 className="w-4 h-4" />
               <h3 className="text-xs font-black uppercase tracking-widest text-[#E2F8FF]">Digital Twin Summary</h3>
             </div>
-            <span className="text-[9px] text-[#00F0FF] font-bold">
-              UTIL: {spaceScore}%
+            <span className={`text-[9px] font-bold ${isRealMeasurement ? 'text-amber-400' : 'text-[#00F0FF]'}`}>
+              {isRealMeasurement ? 'UNAVAILABLE' : `UTIL: ${spaceScore}%`}
             </span>
           </div>
 
-          <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
-            {zones.map((zone) => (
-              <div key={zone.name} className="p-2 rounded-xl bg-[#020617] border border-slate-800 text-[10px] space-y-1">
-                <div className="flex justify-between font-bold">
-                  <span className={zone.is_restricted ? 'text-rose-400' : 'text-[#E2F8FF]'}>{zone.name}</span>
-                  <span className="text-[#00F0FF]">{zone.current_occupancy} Occ</span>
+          {isRealMeasurement ? (
+            <div className="p-3 rounded-xl bg-amber-950/30 border border-amber-600/30 text-[10px] text-amber-300">
+              <p className="font-bold">Zone tracking unavailable</p>
+              <p className="text-amber-400/70 mt-1">Single-node SISO receiver cannot determine occupant position or zone occupancy. Multi-anchor deployment required.</p>
+            </div>
+          ) : (
+            <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+              {zones.map((zone) => (
+                <div key={zone.name} className="p-2 rounded-xl bg-[#020617] border border-slate-800 text-[10px] space-y-1">
+                  <div className="flex justify-between font-bold">
+                    <span className={zone.is_restricted ? 'text-rose-400' : 'text-[#E2F8FF]'}>{zone.name}</span>
+                    <span className="text-[#00F0FF]">{zone.current_occupancy} Occ</span>
+                  </div>
+                  <div className="w-full bg-slate-900 h-1 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full rounded-full ${zone.is_restricted ? 'bg-rose-500' : 'bg-[#00F0FF]'}`}
+                      style={{ width: `${zone.utilization_pct}%` }}
+                    ></div>
+                  </div>
                 </div>
-                <div className="w-full bg-slate-900 h-1 rounded-full overflow-hidden">
-                  <div
-                    className={`h-full rounded-full ${zone.is_restricted ? 'bg-rose-500' : 'bg-[#00F0FF]'}`}
-                    style={{ width: `${zone.utilization_pct}%` }}
-                  ></div>
-                </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 

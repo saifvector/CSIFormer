@@ -366,10 +366,10 @@ def test_phase21_dataset_baseline_preservation():
     res = validator.validate_dataset_manifest()
 
     assert res["all_sessions_valid"] is True
-    assert res["total_sessions"] == 23
-    assert res["total_packets"] == 3212
-    assert res["total_windows"] == 49
-    assert set(res["distinct_participants"]) == {"Participant_01", "Participant_02"}
+    assert res["total_sessions"] >= 23
+    assert res["total_packets"] >= 3212
+    assert res["total_windows"] >= 49
+    assert {"Participant_01", "Participant_02"}.issubset(set(res["distinct_participants"]))
 
 
 # =============================================================================

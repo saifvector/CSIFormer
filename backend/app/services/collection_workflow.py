@@ -183,15 +183,19 @@ class CollectionWorkflowManager:
         if not self.collector.connect():
             raise ConnectionError(f"Cannot connect to ESP32-S3 on port {self.port}.")
 
+        self.collector.trigger_normal_reset()
         self.collector.start_streaming()
         self.stimulator.start()
 
-        # Let packet stream stabilize after hardware connection/boot (wait for first packet or max 15s)
+        # Let packet stream stabilize after hardware connection/boot (wait for first packet or max 30s)
         t_start_wait = time.time()
-        while time.time() - t_start_wait < 15.0:
+        while time.time() - t_start_wait < 30.0:
             if self.collector.csi_packets_parsed > 0:
                 break
             time.sleep(0.2)
+
+        if self.collector.csi_packets_parsed == 0:
+            raise TimeoutError("CSI packet stream did not activate within 30.0s stabilization window.")
 
         clean_label = activity_label.lower()
         clean_pid = participant_id.replace(" ", "_")
@@ -236,9 +240,20 @@ class CollectionWorkflowManager:
         }
 
     def stop_session(self) -> Dict[str, Any]:
-        """Stops recording and returns session performance telemetry."""
+        """Stops recording and returns session performance telemetry (idempotent)."""
         if not self.active_session_info:
             return {"status": "no_active_session"}
+
+        if self.active_session_info.get("stopped", False):
+            return {
+                "status": "recording_stopped",
+                "session_id": self.active_session_info["session_id"],
+                "event_id": self.active_session_info.get("event_id"),
+                "frame_count": self.active_session_info.get("frame_count", 0),
+                "json_path": self.active_session_info.get("saved_json"),
+                "csv_path": self.active_session_info.get("saved_csv"),
+                "already_stopped": True
+            }
 
         self.stimulator.stop()
         res = self.collector.stop_session_recording()
@@ -248,35 +263,57 @@ class CollectionWorkflowManager:
         self.active_session_info["saved_json"] = res.get("json_path")
         self.active_session_info["saved_csv"] = res.get("csv_path")
         self.active_session_info["frame_count"] = res.get("frame_count", 0)
+        self.active_session_info["stopped"] = True
+        self.active_session_info["stop_status"] = res.get("status")
+        if res.get("status") == "error":
+            self.active_session_info["error"] = res.get("error")
 
         return {
-            "status": "recording_stopped",
+            "status": "recording_stopped" if res.get("status") != "error" else "error",
             "session_id": self.active_session_info["session_id"],
             "event_id": self.active_session_info.get("event_id"),
             "frame_count": res.get("frame_count", 0),
             "json_path": res.get("json_path"),
-            "csv_path": res.get("csv_path")
+            "csv_path": res.get("csv_path"),
+            "error": res.get("error")
         }
 
-    def finalize_and_index_session(self, confirmed: bool, split: str = "train", notes: str = "") -> Dict[str, Any]:
+    def finalize_and_index_session(
+        self,
+        confirmed: bool,
+        split: str = "train",
+        notes: str = "",
+        enforce_validation: bool = True
+    ) -> Dict[str, Any]:
         """
         Confirms or rejects the recorded session.
-        If confirmed: registers the session in data/real_csi_dataset/dataset_manifest.json.
+        If confirmed: validates session file, then registers the session in dataset_manifest.json.
         If rejected: updates activity to 'unknown' (class_id -1).
+        If validation fails and enforce_validation is True: manifest is NOT updated.
         """
         if not self.active_session_info:
             return {"status": "no_session_to_finalize"}
 
-        json_path = Path(self.active_session_info["saved_json"])
+        json_path_str = self.active_session_info.get("saved_json")
+        if not json_path_str:
+            return {"status": "error", "message": "No saved session JSON path found."}
+
+        json_path = Path(json_path_str)
         if not json_path.exists():
             return {"status": "error", "message": f"Session file not found: {json_path}"}
 
-        with open(json_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
+        try:
+            with open(json_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except Exception as e:
+            return {"status": "error", "message": f"Failed to read session JSON: {e}"}
 
         actual_activity = self.active_session_info["activity_label"] if confirmed else "unknown"
         actual_cid = VALID_LABELS[actual_activity]["class_id"]
         confirmation_status = "confirmed" if confirmed else "rejected"
+
+        if "metadata" not in data:
+            data["metadata"] = {}
 
         data["metadata"]["event_id"] = self.active_session_info.get("event_id")
         data["metadata"]["ground_truth_confirmed"] = confirmed
@@ -288,69 +325,183 @@ class CollectionWorkflowManager:
         if notes:
             data["metadata"]["notes"] = f"{data['metadata'].get('notes', '')} | {notes}".strip(" | ")
 
-        with open(json_path, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2)
+        # Write back updated metadata
+        try:
+            with open(json_path, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2)
+        except Exception as e:
+            return {"status": "error", "message": f"Failed to update session metadata in JSON: {e}"}
 
-        # Update dataset_manifest.json
-        manifest_path = self.data_dir / "dataset_manifest.json"
-        if manifest_path.exists():
-            with open(manifest_path, "r", encoding="utf-8") as f:
-                manifest = json.load(f)
-        else:
-            manifest = {
-                "dataset_name": "CSIFormer_Real_ESP32S3_CSI_Dataset",
-                "created_at_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-                "sessions": []
-            }
+        # Validate session file using DatasetIntegrityValidator
+        validation_passed = False
+        validation_error = None
+        validation_result = None
 
+        try:
+            from app.services.session_validator import DatasetIntegrityValidator
+            validator = DatasetIntegrityValidator(self.data_dir)
+            validation_result = validator.validate_session_file(json_path)
+            validation_passed = True
+        except Exception as e:
+            validation_passed = False
+            validation_error = str(e)
+
+        manifest_updated = False
         sid = self.active_session_info["session_id"]
-        # Check if session already in manifest
-        existing_sids = [s["session_id"] for s in manifest.get("sessions", [])]
-        if sid not in existing_sids:
-            manifest["sessions"].append({
-                "session_id": sid,
-                "event_id": self.active_session_info.get("event_id"),
-                "activity_label": actual_activity,
-                "class_id": actual_cid,
-                "description": VALID_LABELS[actual_activity]["name"],
-                "confirmation_status": confirmation_status,
-                "participant_id": self.active_session_info["participant_id"],
-                "split": split,
-                "room": self.active_session_info["room_type"],
-                "tx_rx_distance_m": self.active_session_info["tx_rx_distance_m"],
-                "tx_position": self.active_session_info.get("tx_position", "Tx_Baseline_Origin"),
-                "rx_position": self.active_session_info.get("rx_position", "Rx_Baseline_Node"),
-                "orientation": self.active_session_info["orientation"],
-                "carrier_frequency_ghz": 2.442,
-                "wifi_channel": 7,
-                "bssid": "98:ba:5f:ef:28:26",
-                "duration_seconds": data["metadata"].get("duration_seconds", 4.0),
-                "packet_count": self.active_session_info["frame_count"],
-                "sampling_rate_hz": data["metadata"].get("mean_sampling_rate_hz", 35.0),
-                "mean_rssi_dbm": -58.0,
-                "subcarrier_alignment_method": "linear_interpolation_to_56",
-                "json_file": json_path.name,
-                "csv_file": f"{sid}.csv"
-            })
 
-            # Update summary
-            manifest["splits_summary"] = {
-                "train_sessions": sum(1 for s in manifest["sessions"] if s["split"] == "train"),
-                "val_sessions": sum(1 for s in manifest["sessions"] if s["split"] == "val"),
-                "test_sessions": sum(1 for s in manifest["sessions"] if s["split"] == "test"),
-                "total_sessions": len(manifest["sessions"]),
-                "total_frames": sum(s["packet_count"] for s in manifest["sessions"])
-            }
+        # Update dataset_manifest.json ONLY if validation passed (or validation not enforced)
+        if (not enforce_validation) or validation_passed:
+            try:
+                manifest_path = self.data_dir / "dataset_manifest.json"
+                if manifest_path.exists():
+                    with open(manifest_path, "r", encoding="utf-8") as f:
+                        manifest = json.load(f)
+                else:
+                    manifest = {
+                        "dataset_name": "CSIFormer_Real_ESP32S3_CSI_Dataset",
+                        "created_at_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                        "sessions": []
+                    }
 
-            with open(manifest_path, "w", encoding="utf-8") as f:
-                json.dump(manifest, f, indent=2)
+                existing_sids = [s["session_id"] for s in manifest.get("sessions", [])]
+                if sid not in existing_sids:
+                    manifest["sessions"].append({
+                        "session_id": sid,
+                        "event_id": self.active_session_info.get("event_id"),
+                        "activity_label": actual_activity,
+                        "class_id": actual_cid,
+                        "description": VALID_LABELS[actual_activity]["name"],
+                        "confirmation_status": confirmation_status,
+                        "participant_id": self.active_session_info["participant_id"],
+                        "split": split,
+                        "room": self.active_session_info["room_type"],
+                        "tx_rx_distance_m": self.active_session_info["tx_rx_distance_m"],
+                        "tx_position": self.active_session_info.get("tx_position", "Tx_Baseline_Origin"),
+                        "rx_position": self.active_session_info.get("rx_position", "Rx_Baseline_Node"),
+                        "orientation": self.active_session_info["orientation"],
+                        "carrier_frequency_ghz": 2.442,
+                        "wifi_channel": 7,
+                        "bssid": "98:ba:5f:ef:28:26",
+                        "duration_seconds": data["metadata"].get("duration_seconds", 4.0),
+                        "packet_count": self.active_session_info["frame_count"],
+                        "sampling_rate_hz": data["metadata"].get("mean_sampling_rate_hz", 35.0),
+                        "mean_rssi_dbm": -58.0,
+                        "subcarrier_alignment_method": "linear_interpolation_to_56",
+                        "json_file": json_path.name,
+                        "csv_file": f"{sid}.csv"
+                    })
+
+                    manifest["splits_summary"] = {
+                        "train_sessions": sum(1 for s in manifest["sessions"] if s["split"] == "train"),
+                        "val_sessions": sum(1 for s in manifest["sessions"] if s["split"] == "val"),
+                        "test_sessions": sum(1 for s in manifest["sessions"] if s["split"] == "test"),
+                        "total_sessions": len(manifest["sessions"]),
+                        "total_frames": sum(s["packet_count"] for s in manifest["sessions"])
+                    }
+
+                    with open(manifest_path, "w", encoding="utf-8") as f:
+                        json.dump(manifest, f, indent=2)
+
+                manifest_updated = True
+            except Exception as e:
+                manifest_updated = False
+                validation_error = f"Manifest update failed: {e}"
 
         return {
-            "status": "session_finalized",
+            "status": "session_finalized" if validation_passed else "validation_failed",
             "session_id": sid,
             "event_id": self.active_session_info.get("event_id"),
             "confirmed": confirmed,
             "activity_label": actual_activity,
             "class_id": actual_cid,
-            "manifest_updated": True
+            "manifest_updated": manifest_updated,
+            "validation_passed": validation_passed,
+            "validation_error": validation_error,
+            "validation_result": validation_result
+        }
+
+    def safe_shutdown(
+        self,
+        confirmed: Optional[bool] = None,
+        split: str = "train",
+        notes: str = ""
+    ) -> Dict[str, Any]:
+        """
+        Executes the audited 7-step safe shutdown sequence for the ESP32-S3:
+        1. Stop accepting new CSI frames for active session (is_recording = False).
+        2. Finish processing frames already received / drain active acquisition.
+        3. Finalize recording and flush/close JSON & CSV files to disk via stop_session().
+        4. Validate session file using DatasetIntegrityValidator.
+           Update dataset_manifest.json ONLY IF validation passes and confirmed is not None.
+        5. Stop background acquisition thread cleanly (stop_streaming).
+        6. Release serial connection and verify port release (is_port_released).
+        7. Return structured status indicating whether USB disconnection is safe.
+        """
+        # Step 1, 2, 3: Stop session and finalize files
+        stop_res = self.stop_session()
+        had_active_session = bool(self.active_session_info)
+        frame_count = stop_res.get("frame_count", 0) if had_active_session else 0
+        json_path_str = stop_res.get("json_path") if had_active_session else None
+        csv_path_str = stop_res.get("csv_path") if had_active_session else None
+        files_finalized = bool(json_path_str and Path(json_path_str).exists())
+
+        # Step 4: Validate session file and conditionally update manifest
+        validation_passed = None
+        validation_error = None
+        manifest_updated = False
+        activity_label = None
+        class_id = None
+
+        if files_finalized:
+            json_path = Path(json_path_str)
+            if confirmed is not None:
+                fin_res = self.finalize_and_index_session(confirmed=confirmed, split=split, notes=notes)
+                validation_passed = fin_res.get("validation_passed", False)
+                validation_error = fin_res.get("validation_error")
+                manifest_updated = fin_res.get("manifest_updated", False)
+                activity_label = fin_res.get("activity_label")
+                class_id = fin_res.get("class_id")
+            else:
+                # Interrupted / aborted trial: validate file without indexing into manifest
+                try:
+                    from app.services.session_validator import DatasetIntegrityValidator
+                    validator = DatasetIntegrityValidator(self.data_dir)
+                    validator.validate_session_file(json_path)
+                    validation_passed = True
+                except Exception as e:
+                    validation_passed = False
+                    validation_error = str(e)
+                manifest_updated = False
+        elif had_active_session:
+            validation_passed = False
+            validation_error = "Session files could not be finalized."
+
+        # Step 5 & 6: Cleanly stop acquisition and release serial connection
+        self.stimulator.stop()
+        self.collector.stop_streaming()
+        port_released = self.collector.disconnect()
+
+        # Step 7: Confirm port released and report operator readiness
+        safe_to_disconnect = port_released
+
+        sid = None
+        if self.active_session_info:
+            sid = self.active_session_info.get("session_id")
+
+        return {
+            "status": "shutdown_complete" if safe_to_disconnect else "shutdown_warning",
+            "session_id": sid,
+            "had_active_session": had_active_session,
+            "recording_stopped": True if had_active_session else False,
+            "session_files_finalized": files_finalized,
+            "json_path": json_path_str,
+            "csv_path": csv_path_str,
+            "frame_count": frame_count,
+            "validation_passed": validation_passed,
+            "validation_error": validation_error,
+            "manifest_updated": manifest_updated,
+            "activity_label": activity_label,
+            "class_id": class_id,
+            "serial_port_released": port_released,
+            "safe_to_disconnect_usb": safe_to_disconnect
         }

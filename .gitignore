@@ -40,3 +40,8 @@ desktop.ini
 .env
 .env.local
 *.secret
+
+# PlatformIO build artifacts
+.pio/
+firmware/esp32s3_csi_collector/.pio/
+

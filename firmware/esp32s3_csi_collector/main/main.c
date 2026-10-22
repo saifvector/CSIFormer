@@ -12,7 +12,10 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_system.h"
+#if __has_include("esp_spi_flash.h")
 #include "esp_spi_flash.h"
+#endif
+#include "esp_netif.h"
 #include "esp_wifi.h"
 #include "esp_event.h"
 #include "esp_log.h"
@@ -21,7 +24,7 @@
 
 static const char *TAG = "ESP32S3_CSI_COLLECTOR";
 
-#define WIFI_CHANNEL 6
+#define WIFI_CHANNEL 7
 #define SERIAL_BAUD 921600
 #define UDP_PORT 5555
 #define UDP_SERVER_IP "192.168.1.255" // Broadcast IP
@@ -51,9 +54,9 @@ void wifi_csi_cb(void *ctx, wifi_csi_info_t *info) {
     // Buffer to format telemetry string
     char payload_buf[2048];
     int offset = snprintf(payload_buf, sizeof(payload_buf),
-                          "CSI_DATA,%s,%d,%d,%d,%d,",
-                          mac_str, info->rx_ctrl.rssi, info->rx_ctrl.noise_floor,
-                          packet_sequence, num_subcarriers);
+                          "CSI_DATA,%s,%d,%d,%lu,%d,",
+                          mac_str, (int)info->rx_ctrl.rssi, (int)info->rx_ctrl.noise_floor,
+                          (unsigned long)packet_sequence, num_subcarriers);
 
     // Calculate Amplitudes & Phases for each subcarrier
     for (int i = 0; i < num_subcarriers; i++) {
@@ -81,22 +84,38 @@ void wifi_csi_cb(void *ctx, wifi_csi_info_t *info) {
     }
 }
 
-void init_csi() {
+static esp_err_t init_csi(void) {
     wifi_csi_config_t csi_config = {
         .lltf_en = true,
         .htltf_en = true,
         .stbc_htltf2_en = true,
-        .ltf2_en = true,
-        .rx_filter_len = 16,
+        .ltf_merge_en = true,
         .channel_filter_en = true,
         .manu_scale = false,
-        .shift = false
+        .shift = 0,
+        .dump_ack_en = false
     };
 
-    ESP_ERROR_CHECK(esp_wifi_set_csi_config(&csi_config));
-    ESP_ERROR_CHECK(esp_wifi_set_csi_rx_cb(wifi_csi_cb, NULL));
-    ESP_ERROR_CHECK(esp_wifi_set_csi(true));
+    esp_err_t ret = esp_wifi_set_csi_config(&csi_config);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "esp_wifi_set_csi_config failed: %s (0x%x)", esp_err_to_name(ret), ret);
+        return ret;
+    }
+
+    ret = esp_wifi_set_csi_rx_cb(wifi_csi_cb, NULL);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "esp_wifi_set_csi_rx_cb failed: %s (0x%x)", esp_err_to_name(ret), ret);
+        return ret;
+    }
+
+    ret = esp_wifi_set_csi(true);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "esp_wifi_set_csi failed: %s (0x%x)", esp_err_to_name(ret), ret);
+        return ret;
+    }
+
     ESP_LOGI(TAG, "Wi-Fi CSI Collection Enabled on Channel %d", WIFI_CHANNEL);
+    return ESP_OK;
 }
 
 void app_main(void) {
@@ -106,21 +125,80 @@ void app_main(void) {
         ESP_ERROR_CHECK(nvs_flash_erase());
         ret = nvs_flash_init();
     }
-    ESP_ERROR_CHECK(ret);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "NVS flash initialization failed: %s (0x%x)", esp_err_to_name(ret), ret);
+        goto fail_halt;
+    }
 
     ESP_LOGI(TAG, "Initializing ESP32-S3 Wi-Fi CSI Sensing Node...");
 
-    // Initialize Wi-Fi in Promiscuous Mode
+    // Initialize Network Interface and System Event Loop
+    ret = esp_netif_init();
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "esp_netif_init failed: %s (0x%x)", esp_err_to_name(ret), ret);
+        goto fail_halt;
+    }
+
+    ret = esp_event_loop_create_default();
+    if (ret != ESP_OK && ret != ESP_ERR_INVALID_STATE) {
+        ESP_LOGE(TAG, "esp_event_loop_create_default failed: %s (0x%x)", esp_err_to_name(ret), ret);
+        goto fail_halt;
+    }
+
+    esp_netif_create_default_wifi_sta();
+
+    // Initialize Wi-Fi in Station / Promiscuous Mode
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
-    ESP_ERROR_CHECK(esp_wifi_init(&cfg));
-    ESP_ERROR_CHECK(esp_wifi_set_storage(WIFI_STORAGE_RAM));
-    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_NULL));
-    ESP_ERROR_CHECK(esp_wifi_start());
-    ESP_ERROR_CHECK(esp_wifi_set_channel(WIFI_CHANNEL, WIFI_SECOND_CHAN_NONE));
-    ESP_ERROR_CHECK(esp_wifi_set_promiscuous(true));
+    cfg.csi_enable = 1; // Explicitly ensure CSI driver buffer allocation in MAC layer
+    ret = esp_wifi_init(&cfg);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "esp_wifi_init failed: %s (0x%x)", esp_err_to_name(ret), ret);
+        goto fail_halt;
+    }
+
+    ret = esp_wifi_set_storage(WIFI_STORAGE_RAM);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "esp_wifi_set_storage failed: %s (0x%x)", esp_err_to_name(ret), ret);
+        goto fail_halt;
+    }
+
+    ret = esp_wifi_set_mode(WIFI_MODE_STA);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "esp_wifi_set_mode(STA) failed: %s (0x%x)", esp_err_to_name(ret), ret);
+        goto fail_halt;
+    }
+
+    ret = esp_wifi_start();
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "esp_wifi_start failed: %s (0x%x)", esp_err_to_name(ret), ret);
+        goto fail_halt;
+    }
+
+    ret = esp_wifi_set_channel(WIFI_CHANNEL, WIFI_SECOND_CHAN_NONE);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "esp_wifi_set_channel failed: %s (0x%x)", esp_err_to_name(ret), ret);
+        goto fail_halt;
+    }
+
+    ret = esp_wifi_set_promiscuous(true);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "esp_wifi_set_promiscuous failed: %s (0x%x)", esp_err_to_name(ret), ret);
+        goto fail_halt;
+    }
 
     // Enable CSI Subcarrier Hardware Extraction
-    init_csi();
+    ret = init_csi();
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "CSI initialization failed: %s (0x%x)", esp_err_to_name(ret), ret);
+        goto fail_halt;
+    }
 
-    ESP_LOGI(TAG, "ESP32-S3 CSI Node Active & Streaming Telemetry...");
+    ESP_LOGI(TAG, "ESP32-S3 CSI Node Active & Streaming Telemetry on Channel %d...", WIFI_CHANNEL);
+    return;
+
+fail_halt:
+    ESP_LOGE(TAG, "FATAL: Wi-Fi CSI initialization encountered a fatal error. Entering diagnostic halt.");
+    while (1) {
+        vTaskDelay(pdMS_TO_TICKS(5000));
+    }
 }

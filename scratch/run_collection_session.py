@@ -35,7 +35,8 @@ from app.services.session_validator import DatasetIntegrityValidator
 def main():
     parser = argparse.ArgumentParser(description="CSIFormer Phase 20 Standardized Real-Data Collection")
     parser.add_argument("--port", default="COM5", help="Serial port of ESP32-S3 (default COM5)")
-    parser.add_argument("--verify", action="store_true", help="Verify hardware connection and stream only")
+    parser.add_argument("--verify", action="store_true", help="Verify hardware connection and stream only (non-recording)")
+    parser.add_argument("--disconnect", action="store_true", help="Cleanly release serial port and verify ESP32-S3 safe disconnection")
     parser.add_argument("--validate", action="store_true", help="Validate existing dataset manifest and session files")
     parser.add_argument("--activity", choices=list(VALID_LABELS.keys()), default="walk", help="Activity label")
     parser.add_argument("--participant", default="Participant_03", help="Pseudonymized participant ID")
@@ -69,6 +70,16 @@ def main():
         return
 
     manager = CollectionWorkflowManager(port=args.port)
+
+    if args.disconnect:
+        print("=" * 80)
+        print("ESP32-S3 SAFE DISCONNECTION & PORT RELEASE CHECK")
+        print("=" * 80)
+        print(f"Checking serial port {args.port}...")
+        manager.collector.connect(port=args.port)
+        report = manager.safe_shutdown()
+        _print_shutdown_report(report)
+        return
 
     if args.verify:
         verify_dur = args.duration if args.duration != 4.0 else 12.0
@@ -140,6 +151,7 @@ def main():
     print("Starting session in 1.0s...")
     time.sleep(1.0)
 
+    report = None
     try:
         rec_start = manager.start_session(
             participant_id=args.participant,
@@ -164,21 +176,92 @@ def main():
             time.sleep(0.1)
         print()
 
-    finally:
         stop_res = manager.stop_session()
         print(f"Recording Finished. Frames Captured: {stop_res.get('frame_count', 0)}")
-        print(f"Saved JSON: {stop_res.get('json_path')}")
+        if stop_res.get("json_path"):
+            print(f"Saved JSON: {stop_res.get('json_path')}")
 
-    # Finalize
-    confirmed = args.confirm
-    if not confirmed:
-        resp = input(f"Confirm ground-truth '{args.activity}' for this trial? (y/n): ").strip().lower()
-        confirmed = (resp == "y")
+        # Finalize
+        confirmed = args.confirm
+        if not confirmed:
+            try:
+                resp = input(f"Confirm ground-truth '{args.activity}' for this trial? (y/n): ").strip().lower()
+                confirmed = (resp == "y")
+            except (KeyboardInterrupt, EOFError):
+                print("\n[Operator Interrupt] Ground truth confirmation aborted.")
+                confirmed = None
 
-    fin_res = manager.finalize_and_index_session(confirmed=confirmed, split=args.split, notes=args.notes)
-    print(f"Session Finalized. Activity: {fin_res['activity_label']} | Manifest Updated: {fin_res['manifest_updated']}")
-    print(f"Confirmation Status: {fin_res.get('confirmed')}")
+        report = manager.safe_shutdown(confirmed=confirmed, split=args.split, notes=args.notes)
+
+    except KeyboardInterrupt:
+        print("\n\n[KEYBOARD INTERRUPT DETECTED]")
+        print("Initiating safe shutdown sequence...")
+        report = manager.safe_shutdown(confirmed=None, split=args.split, notes="Interrupted by operator (Ctrl+C)")
+
+    except Exception as e:
+        print(f"\n[UNEXPECTED ERROR] {e}")
+        print("Initiating safe shutdown sequence...")
+        report = manager.safe_shutdown(confirmed=None, split=args.split, notes=f"Aborted due to error: {e}")
+
+    if report:
+        _print_shutdown_report(report)
+
+
+def _print_shutdown_report(report: dict):
+    """Prints clear, standardized operator workflow status messages."""
     print("=" * 80)
+    print("SAFE SHUTDOWN & CLEANUP VERIFICATION")
+    print("=" * 80)
+
+    had_session = report.get("had_active_session", True) if report.get("session_id") or report.get("frame_count") else False
+
+    if had_session:
+        rec_stopped = "YES" if report.get("recording_stopped") else "NO"
+        print(f"Recording stopped:         {rec_stopped}")
+
+        files_fin = report.get("session_files_finalized")
+        f_count = report.get("frame_count", 0)
+        if files_fin:
+            print(f"Session files finalized:   YES ({f_count} frames)")
+            if report.get("json_path"):
+                print(f"  JSON: {report.get('json_path')}")
+            if report.get("csv_path"):
+                print(f"  CSV:  {report.get('csv_path')}")
+        else:
+            print(f"Session files finalized:   NO (No files written)")
+
+        val_passed = report.get("validation_passed")
+        val_err = report.get("validation_error")
+        if val_passed:
+            print(f"Validation status:         PASSED")
+        else:
+            err_str = f" ({val_err})" if val_err else ""
+            print(f"Validation status:         FAILED{err_str}")
+
+        manifest_up = report.get("manifest_updated")
+        if manifest_up:
+            print(f"Manifest updated:          YES (Session indexed into dataset_manifest.json)")
+        else:
+            print(f"Manifest updated:          NO (Session not indexed)")
+    else:
+        print(f"Recording stopped:         N/A (No active session)")
+        print(f"Session files finalized:   N/A (No session recorded)")
+        print(f"Validation status:         SKIPPED (No session recorded)")
+        print(f"Manifest updated:          NO (No session to index)")
+
+    port_rel = report.get("serial_port_released")
+    if port_rel:
+        print(f"Serial port released:      YES (COM port closed, acquisition thread terminated)")
+    else:
+        print(f"Serial port released:      NO (Port handle still held!)")
+
+    safe_usb = report.get("safe_to_disconnect_usb")
+    if safe_usb:
+        print(f"Status:                    SAFE TO DISCONNECT ESP32-S3 FROM USB")
+    else:
+        print(f"Status:                    CAUTION: Port not confirmed released. Do NOT unplug.")
+    print("=" * 80)
+
 
 if __name__ == "__main__":
     main()
