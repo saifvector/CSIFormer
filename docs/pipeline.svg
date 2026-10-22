@@ -1,0 +1,90 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 840 220" width="100%" height="220">
+  <defs>
+    <style>
+      .label { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 13px; font-weight: 600; fill: #f1f5f9; }
+      .sublabel { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 11px; fill: #94a3b8; }
+      .meta { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; font-size: 10px; fill: #64748b; }
+      .box { fill: #0f172a; stroke: #334155; stroke-width: 1.5; rx: 6px; }
+      .wire { stroke: #334155; stroke-width: 1.5; fill: none; stroke-dasharray: 4 4; }
+      .wire-active { stroke: #38bdf8; stroke-width: 1.5; fill: none; }
+      .pulse { fill: #38bdf8; }
+      .tag { font-family: ui-monospace, monospace; font-size: 9px; fill: #38bdf8; }
+    </style>
+    <path id="path1" d="M 180 110 L 250 110" />
+    <path id="path2" d="M 410 110 L 480 110" />
+    <path id="path3" d="M 640 110 L 710 110" />
+  </defs>
+
+  <!-- Background -->
+  <rect width="840" height="220" fill="#020617" rx="8" stroke="#1e293b" stroke-width="1" />
+
+  <!-- Stage 1: RF Sensing Node -->
+  <rect x="20" y="45" width="160" height="130" class="box" />
+  <text x="35" y="75" class="label">ESP32-S3 Node</text>
+  <text x="35" y="95" class="sublabel">802.11n HT20 (2.4 GHz)</text>
+  <text x="35" y="115" class="meta">Channel 7 (2.442 GHz)</text>
+  <text x="35" y="133" class="meta">64 FFT Bins</text>
+  <text x="35" y="151" class="meta">52 Active Data Tones</text>
+  <rect x="125" y="55" width="45" height="16" fill="#1e293b" rx="3" />
+  <text x="130" y="66" class="tag">HW-PHY</text>
+
+  <!-- Wire 1: Node to Preprocessing -->
+  <path d="M 180 110 L 250 110" class="wire" />
+  <circle r="3" class="pulse">
+    <animateMotion dur="2.4s" repeatCount="indefinite">
+      <mpath href="#path1" />
+    </animateMotion>
+    <animate attributeName="opacity" values="0.2;1;0.2" dur="2.4s" repeatCount="indefinite" />
+  </circle>
+  <text x="187" y="100" class="meta">UART 115k</text>
+
+  <!-- Stage 2: Ingestion & Calibration -->
+  <rect x="250" y="45" width="160" height="130" class="box" />
+  <text x="265" y="75" class="label">Ingestion &amp; Filter</text>
+  <text x="265" y="95" class="sublabel">RealCSICollector</text>
+  <text x="265" y="115" class="meta">BSSID Target Match</text>
+  <text x="265" y="133" class="meta">Fail-Closed Parsing</text>
+  <text x="265" y="151" class="meta">Aligned to 56 Subcarriers</text>
+  <rect x="365" y="55" width="35" height="16" fill="#1e293b" rx="3" />
+  <text x="370" y="66" class="tag">SYNC</text>
+
+  <!-- Wire 2: Preprocessing to Dual-Branch Model -->
+  <path d="M 410 110 L 480 110" class="wire" />
+  <circle r="3" class="pulse">
+    <animateMotion dur="2.4s" begin="0.8s" repeatCount="indefinite">
+      <mpath href="#path2" />
+    </animateMotion>
+    <animate attributeName="opacity" values="0.2;1;0.2" dur="2.4s" begin="0.8s" repeatCount="indefinite" />
+  </circle>
+  <text x="418" y="100" class="meta">[50, 56]</text>
+
+  <!-- Stage 3: Dual-Branch Transformer -->
+  <rect x="480" y="45" width="160" height="130" class="box" />
+  <text x="495" y="75" class="label">Dual-Branch Model</text>
+  <text x="495" y="95" class="sublabel">CSIDualBranchFusionNet</text>
+  <text x="495" y="115" class="meta">Branch A: Raw Amplitude</text>
+  <text x="495" y="133" class="meta">Branch B: STFT Doppler</text>
+  <text x="495" y="151" class="meta">Learned Gating Vector</text>
+  <rect x="590" y="55" width="40" height="16" fill="#1e293b" rx="3" />
+  <text x="595" y="66" class="tag">TORCH</text>
+
+  <!-- Wire 3: Model to Inference Output -->
+  <path d="M 640 110 L 710 110" class="wire" />
+  <circle r="3" class="pulse">
+    <animateMotion dur="2.4s" begin="1.6s" repeatCount="indefinite">
+      <mpath href="#path3" />
+    </animateMotion>
+    <animate attributeName="opacity" values="0.2;1;0.2" dur="2.4s" begin="1.6s" repeatCount="indefinite" />
+  </circle>
+  <text x="647" y="100" class="meta">Class ID</text>
+
+  <!-- Stage 4: Inference & Spatial HUD -->
+  <rect x="710" y="45" width="110" height="130" class="box" />
+  <text x="722" y="75" class="label">Outputs</text>
+  <text x="722" y="95" class="sublabel">FastAPI + HUD</text>
+  <text x="722" y="115" class="meta">Activity Class</text>
+  <text x="722" y="133" class="meta">Fall Detection</text>
+  <text x="722" y="151" class="meta">3D Spatial Twin</text>
+  <rect x="775" y="55" width="35" height="16" fill="#1e293b" rx="3" />
+  <text x="780" y="66" class="tag">LIVE</text>
+</svg>

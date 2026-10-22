@@ -1,131 +1,191 @@
-# CSIFormer: Physics-Aware Dual-Branch Wi-Fi Sensing & 3D Spatial Digital Twin
+# CSIFormer
 
-[![FastAPI](https://img.shields.io/badge/Backend-FastAPI-009688.svg)](https://fastapi.tiangolo.com)
-[![PyTorch](https://img.shields.io/badge/Deep%20Learning-PyTorch%202.x-EE4C2C.svg)](https://pytorch.org)
-[![Vite](https://img.shields.io/badge/Frontend-Vite%20%2B%20React%2019-646CFF.svg)](https://vitejs.dev)
-[![Three.js](https://img.shields.io/badge/3D%20Spatial-React%20Three%20Fiber-black.svg)](https://docs.pmnd.rs/react-three-fiber)
-[![ESP32-S3](https://img.shields.io/badge/Hardware-ESP32--S3%20CSI-E7352C.svg)](https://www.espressif.com)
+CSIFormer is a Wi-Fi Channel State Information (CSI) sensing platform designed for human activity recognition and fall detection using commodity ESP32-S3 hardware and a dual-branch Transformer neural network.
 
-**CSIFormer** is an end-to-end, privacy-preserving contactless wireless sensing platform that leverages commodity Wi-Fi **Channel State Information (CSI)** for real-time Human Activity Recognition (HAR), Fall Detection, fine-motor gesture classification, and 3D spatial localization.
+The system extracts physical Orthogonal Frequency Division Multiplexing (OFDM) channel responses from ambient or directed 802.11n Wi-Fi transmissions, isolates physical subcarriers, extracts Doppler velocity signatures, and classifies human movements without wearable devices or cameras.
 
-It addresses the fundamental **biometric multipath bottleneck** in RF sensing by introducing **Dual-Branch CSIFormer (`CSIDualBranchFusionNet`)**, combining raw amplitude baselines with Doppler Frequency Spectra (DFS) through dynamic learnable gating and cross-subject contrastive regularization.
+![CSIFormer Processing Pipeline](docs/pipeline.svg)
 
----
+## System Overview
 
-## 🌟 Key Highlights
+The pipeline consists of four main layers:
 
-- **Dual-Branch Transformer Architecture:**
-  - **Branch A (Raw CSI Spatial-Spectral Transformer):** Retains raw subcarrier amplitude dynamics for non-compromisable life-safety tasks.
-  - **Branch B (Doppler DFS Transformer):** Extracts dynamic limb velocity kinematics ($v = \frac{\lambda f_D}{2}$), decoupling body mass from motion signatures.
-- **Adaptive Learnable Gating:** Dynamic gating vector $\mathbf{g} = \sigma(\mathbf{W}_g [\mathbf{f}_A, \mathbf{f}_B])$ automatically shifts reliance between amplitude and Doppler features based on physical action scale.
-- **Life-Safety Guarantees:** Strictly verified **100.0% Fall Detection Recall** (0 false negatives on held-out test sets) and **99.09% HAR Accuracy**.
-- **Real-Time 3D Spatial Digital Twin:** WebGL / React Three Fiber interactive interface visualizing live CSI point clouds, antenna coverage lobes, room zone occupancy, and telemetry at 30 Hz.
-- **Embedded & Edge Ready:** Quantized model footprint of **1.41 MB (INT8)**, operating comfortably inside the ESP32-S3 microcontroller's 8 MB PSRAM (17.7% utilization) with sub-10ms latency.
+1. **Firmware Layer (ESP32-S3):** Custom firmware runs on an ESP32-S3 in promiscuous station mode on a fixed 2.4 GHz channel (default: Channel 7, 2.442 GHz). It registers a hardware CSI receive callback (`esp_wifi_set_csi_rx_cb`) and streams structured CSV telemetry (`Format B`) over USB serial at 115,200 or 921,600 baud.
+2. **Ingestion and Calibration (`RealCSICollector`):** A Python ingestion engine captures serial frames, validates frame tokens, enforces fail-closed source MAC filtering against a configured Access Point BSSID, separates active subcarriers from null bands, and manages sliding temporal window buffers.
+3. **Dual-Branch Transformer (`CSIDualBranchFusionNet`):** A PyTorch neural network processes fixed-size tensors of shape `[Batch, 50, 56]`.
+   - Branch A (Spatial-Spectral): Processes normalized subcarrier amplitudes to capture broad multipath shifts.
+   - Branch B (Kinematic Doppler): Computes Short-Time Fourier Transform (STFT) spectrograms to track limb velocity profiles.
+   - Fusion Layer: Applies a learnable gating vector to balance amplitude and Doppler representations before classification.
+4. **Interface and Telemetry:** A FastAPI service exposes REST and WebSocket endpoints. A React and Three.js frontend renders live subcarrier amplitude responses, packet arrival metrics, and a 3D spatial occupancy view.
 
----
+## Hardware and RF Requirements
 
-## 📊 Benchmark Results
+- **Microcontroller:** ESP32-S3 development board (such as ESP32-S3-DevKitC-1 with 8 MB or 16 MB flash and embedded PSRAM).
+- **USB Interface:** USB-to-UART bridge (CH343, CP210x, or Espressif native USB-JTAG).
+- **Wi-Fi Network:** Standard 802.11n 2.4 GHz access point operating on a fixed, non-hopping channel (default: Channel 7, 20 MHz HT20 bandwidth).
+- **Physical Layout:** Direct line-of-sight (LOS) placement between the Wi-Fi router and the ESP32-S3 receiver node at a distance of 2.0 to 3.0 meters, elevated 1.0 meter above floor level.
 
-| Metric | Measured Performance | Specification Target | Status |
-| :--- | :---: | :---: | :---: |
-| **Fall Detection Recall** | **100.0% (44/44 test falls)** | 100.0% | **PASSED** |
-| **HAR Activity Accuracy** | **99.09%** | $\ge 99.0\%$ | **PASSED** |
-| **Seen Gesture Top-1** | **54.17%** | $\ge 40.0\%$ | **PASSED** |
-| **Seen Gesture Top-3** | **90.83%** | $\ge 80.0\%$ | **PASSED** |
-| **Gesture Macro F1** | **0.5062** | $\ge 0.35$ | **PASSED** |
-| **Unseen User (LOSO) Top-3** | **69.50% – 73.83%** | $\ge 70.0\%$ | **PASSED** |
-| **Mean Inference Latency (GPU)**| **6.00 ms (P99: 8.9 ms)** | $< 10.0\text{ ms}$ | **PASSED** |
-| **Streaming Throughput** | **166.6 FPS** | $> 30.0\text{ FPS}$ | **PASSED** |
+## Subcarrier Representation
 
----
+In IEEE 802.11n 20 MHz (HT20) mode, the ESP32-S3 baseband outputs 64 FFT bins:
 
-## 🏗️ System Architecture
+- **Active Subcarriers (52 tones):** Bins 1 through 26 (negative frequencies) and bins 38 through 63 (positive frequencies) contain non-zero multipath measurements.
+- **Null Subcarriers (12 tones):** Bin 0 is the direct-current (DC) null carrier suppressed by receiver hardware. Bins 27 through 37 are guard-band null carriers zeroed out at the band edges.
+
+The ingestion engine preserves the raw 64-bin readings and the extracted 52 physical active subcarriers in session recordings, while linearly interpolating to 56 subcarriers (`TARGET_SUBCARRIERS = 56`) for compatibility with the trained Transformer input dimension.
+
+## Project Structure
 
 ```
-[ ESP32-S3 Wi-Fi Nodes ] ---> [ 30 Hz CSI Raw Packets (Subcarriers 1..64) ]
-                                            │
-                                            ▼
-                    [ Physics-Aware Preprocessing Engine ]
-                     ├── Branch A: Static Multipath Subtraction (Raw CSI)
-                     └── Branch B: STFT Doppler Frequency Spectrum (DFS)
-                                            │
-                                            ▼
-                            [ Dual-Branch CSIFormer ]
-                     ├── Branch A Transformer (Spatial-Spectral Encoder)
-                     ├── Branch B Transformer (Velocity-Kinematic Encoder)
-                     └── Learnable Gating Fusion: f_fused = g·f_A + (1-g)·f_B
-                                            │
-                                            ▼
-                          [ Multi-Task Prediction Head ]
-                     ├── Life-Safety Fall Detection (100% Recall)
-                     ├── Human Activity Recognition (HAR) (99.09% Acc)
-                     └── Fine-Motor Gesture Recognition (54.17% Top-1 / 90.83% Top-3)
-                                            │
-                                            ▼
-           [ 3D Digital Twin HUD Dashboard: React Three Fiber + WebSocket ]
-```
-
----
-
-## 📁 Repository Structure
-
-```
+.
 ├── backend/
 │   ├── app/
-│   │   ├── api/             # FastAPI REST & WebSocket endpoints
-│   │   ├── core/            # Configuration & logging settings
-│   │   ├── datasets/        # PyTorch Dataset loaders (Widar 3.0 & NTU-Fi)
-│   │   ├── models/          # CSIFormer & CSIDualBranchFusionNet architectures
-│   │   ├── services/        # Hardware bridge, preprocessor, and localization engines
-│   │   └── websockets/      # Real-time 30 Hz spatial telemetry stream
-│   └── run.py               # Uvicorn backend server entry point
+│   │   ├── api/             # FastAPI REST and WebSocket route handlers
+│   │   ├── core/            # Configuration and application settings
+│   │   ├── models/          # Dual-branch Transformer architecture
+│   │   └── services/        # Serial collector, preprocessor, and validator
+│   ├── tests/               # Pytest test suites across engineering phases
+│   └── run.py               # Backend startup script
 ├── frontend/
-│   ├── src/
-│   │   ├── components/      # React components (3D Canvas, HUD, Sensor Nodes)
-│   │   ├── hooks/           # WebSocket and telemetry hooks
-│   │   └── App.tsx          # Main HUD dashboard view
-│   ├── index.html           # HTML entry point
-│   └── package.json         # React 19 / Three.js / Tailwind dependencies
-├── models/                  # Trained PyTorch model checkpoints
-│   ├── csiformer_phase13_best.pth  # Official Production Checkpoint (Gated Fusion)
-│   ├── csiformer_phase13_gated.pth
-│   ├── csiformer_phase13_concat.pth
-│   └── csiformer_phase13_cross_attention.pth
-├── reports/                 # Comprehensive scientific audit reports and figures
-└── scratch/                 # Scientific evaluation & training scripts
+│   ├── src/                 # React components, 3D spatial canvas, HUD
+│   ├── index.html           # Web application entry point
+│   └── package.json         # Frontend dependencies and build scripts
+├── firmware/
+│   └── esp32s3_csi_collector/  # ESP-IDF / PlatformIO firmware project
+│       ├── main/main.c      # CSI callback and serial streaming logic
+│       └── platformio.ini   # Build flags and serial configurations
+├── data/
+│   └── real_csi_dataset/    # Recorded CSI sessions and dataset manifest
+├── docs/
+│   └── pipeline.svg         # Architecture flow diagram
+├── models/                  # PyTorch model weight checkpoints
+├── reports/                 # Engineering audit reports across phases
+└── scratch/                 # Diagnostic utilities and test scripts
 ```
 
----
+## Prerequisites
 
-## 🚀 Quick Start Guide
+- **Python:** Version 3.10 or 3.11 with `pip` and `virtualenv`.
+- **Node.js:** Version 18.x or 20.x with `npm`.
+- **PlatformIO CLI:** Required if compiling and flashing the ESP32-S3 firmware.
 
-### 1. Prerequisites
-- Python 3.10 or 3.11 with CUDA support
-- Node.js 18+ and npm
+## Installation
 
-### 2. Backend Setup
+### 1. Backend Setup
+
+Open a terminal in the project root:
+
 ```bash
 cd backend
 python -m venv .venv
-# Windows:
-.venv\Scripts\activate
-# Linux/Mac:
-source .venv/bin/activate
-
-pip install -r requirements.txt
-python run.py
 ```
-Backend will start on `http://localhost:8000` (Swagger docs available at `http://localhost:8000/docs`).
 
-### 3. Frontend Setup
+Activate the virtual environment:
+
+On Linux or macOS:
+```bash
+source .venv/bin/activate
+```
+
+On Windows (PowerShell):
+```powershell
+.\.venv\Scripts\Activate.ps1
+```
+
+Install Python dependencies:
+
+```bash
+pip install -r requirements.txt
+```
+
+### 2. Frontend Setup
+
+In a separate terminal, install the web client dependencies:
+
 ```bash
 cd frontend
 npm install
+```
+
+### 3. Firmware Setup (Optional)
+
+If flashing new firmware to an ESP32-S3 on COM5:
+
+```bash
+cd firmware/esp32s3_csi_collector
+pio run -t upload --upload-port COM5
+```
+
+## Running the Application
+
+### Starting the Backend
+
+From the `backend` directory with the virtual environment activated:
+
+```bash
+python run.py
+```
+
+The FastAPI server initializes at `http://localhost:8000`. API documentation is available at `http://localhost:8000/docs`.
+
+If an ESP32-S3 is connected via USB, the server automatically scans and identifies the serial port. If no hardware node is detected, the service operates in simulation mode using recorded session data.
+
+### Starting the Frontend
+
+From the `frontend` directory:
+
+```bash
 npm run dev
 ```
-Frontend will be available at `http://localhost:5173`.
 
----
+The web dashboard opens at `http://localhost:5173`.
 
-## 📄 License
-This project is licensed under the MIT License.
+## Operational Modes
+
+### Live Hardware Acquisition
+
+To start a recording session through the CLI utility:
+
+```bash
+py -3.11 scratch/run_collection_session.py --port COM5 --activity walk --participant Participant_01 --duration 4.0 --confirm
+```
+
+Supported activity labels:
+- `walk`: Walking within line-of-sight.
+- `sit`: Transition from standing to sitting.
+- `clap`: Two-hand clapping motion.
+- `push_pull`: Forward push and backward pull gestures.
+- `static`: Stationary empty room or baseline background.
+- `fall`: Controlled descent on certified safety mats.
+
+### Replay and Offline Validation
+
+To validate the dataset manifest and verify session file integrity without connecting hardware:
+
+```bash
+py -3.11 scratch/run_collection_session.py --validate
+```
+
+## Testing
+
+Run the automated regression test suite using `pytest`:
+
+```bash
+py -3.11 -m pytest backend/tests/test_phase52.py backend/tests/test_phase55.py -v
+```
+
+To run all phase verification tests:
+
+```bash
+py -3.11 -m pytest backend/tests/ -v
+```
+
+## Known Technical Constraints
+
+- **Passive Acquisition Rate:** When listening passively to router beacons without client traffic, the ESP32-S3 receives between 1.6 and 3.8 frames per second. CSIFormer's 50-frame window assumes a sample rate of 30 to 39 Hz (approximately 1.4 seconds of physical motion). For accurate activity recognition, metered network traffic (such as periodic ICMP or UDP datagrams directed to the router) is required to sustain continuous frame rates above 30 Hz.
+- **Transmitter Address Semantics:** In 802.11 frames, the MAC address captured by the hardware corresponds to Address 2 (Transmitter Address). For downlink packets from the router, this matches the access point BSSID. For uplink packets from connected devices, it matches the device MAC. Source filtering must remain active to prevent client transmissions from corrupting the channel response.
+- **Clock Source:** Frame timestamps are recorded at the host serial layer upon packet arrival. High CPU load on the host machine may introduce timestamp jitter.
+
+## License
+
+This project is distributed under the MIT License. Details are available in the LICENSE file.
